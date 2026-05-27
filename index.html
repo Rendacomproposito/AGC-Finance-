@@ -519,27 +519,35 @@ async function logout(){
   showLogin();
 }
 
-// Carrega do Supabase para o usuário autenticado; fallback para localStorage
+// Carrega do Supabase como fonte primária; localStorage apenas como fallback offline
 async function loadState(){
-  try{const d=localStorage.getItem(LOCAL_KEY);if(d)state=JSON.parse(d);}catch(e){}
-  renderAll();
   setSyncStatus('syncing');
   try{
     const res=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}&select=data`,{
       headers:sbHeaders(currentUser.access_token)
     });
-    if(!res.ok)throw new Error('http '+res.status);
+    if(!res.ok){
+      if(res.status===401){
+        const renewed=await validateSession(currentUser);
+        if(renewed){currentUser=renewed;saveSession(renewed);loadState();return;}
+      }
+      throw new Error('http '+res.status);
+    }
     const rows=await res.json();
     if(rows&&rows.length&&rows[0].data&&Object.keys(rows[0].data).length){
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[],...rows[0].data};
       localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-      renderAll();
+    } else {
+      state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
+      localStorage.removeItem(LOCAL_KEY);
     }
     setSyncStatus('ok');
   }catch(e){
     setSyncStatus(navigator.onLine?'error':'offline');
-    console.warn('Supabase load error:',e);
+    console.warn('Supabase load error, usando localStorage como fallback:',e);
+    try{const d=localStorage.getItem(LOCAL_KEY);if(d)state=JSON.parse(d);}catch(le){}
   }
+  renderAll();
 }
 
 // Salva local imediatamente + debounce para Supabase (upsert por user_id)
@@ -550,23 +558,43 @@ function saveState(){
   clearTimeout(syncTimeout);
   syncTimeout=setTimeout(async()=>{
     try{
-      const res=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
-        method:'POST',
-        headers:{
-          ...sbHeaders(currentUser.access_token),
-          'Prefer':'resolution=merge-duplicates,return=minimal'
-        },
-        body:JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()})
+      const payload={user_id:currentUser.id,data:state,updated_at:new Date().toISOString()};
+      const headers=sbHeaders(currentUser.access_token);
+
+      // Tenta PATCH primeiro (atualiza se já existe)
+      const patch=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
+        method:'PATCH',
+        headers:{...headers,'Prefer':'return=minimal'},
+        body:JSON.stringify(payload)
       });
-      if(!res.ok){
-        const t=await res.text();
-        // Token expirado — tenta renovar e salvar de novo
-        if(res.status===401){
-          const renewed=await validateSession(currentUser);
-          if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
-        }
-        throw new Error('http '+res.status+' '+t);
+
+      if(patch.status===401){
+        const renewed=await validateSession(currentUser);
+        if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
+        throw new Error('Token inválido');
       }
+
+      // PATCH retorna 204 com zero linhas afetadas se não existe o registro
+      // Supabase retorna Content-Range: */0 nesse caso — fazemos INSERT
+      const range=patch.headers.get('Content-Range')||'';
+      const nonePatched=patch.ok&&(range.includes('*/0')||range==='');
+
+      if(nonePatched||patch.status===404){
+        // Registro não existe ainda — INSERT
+        const post=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
+          method:'POST',
+          headers:{...headers,'Prefer':'return=minimal'},
+          body:JSON.stringify(payload)
+        });
+        if(!post.ok){
+          const t=await post.text();
+          throw new Error('INSERT http '+post.status+' '+t);
+        }
+      } else if(!patch.ok){
+        const t=await patch.text();
+        throw new Error('PATCH http '+patch.status+' '+t);
+      }
+
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
@@ -1443,7 +1471,7 @@ async function init(){
     if(fromLink){
       document.getElementById('headerDate').innerHTML=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
       showApp();
-      loadState();
+      await loadState();
       return;
     }
   }
@@ -1452,10 +1480,16 @@ async function init(){
   const saved = loadSession();
   if(saved){
     const valid = await validateSession(saved);
-    if(valid){ currentUser=valid;
+    if(valid){
+      currentUser=valid;
       document.getElementById('headerDate').innerHTML=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
-      showApp(); loadState(); return;
-    } else clearSession();
+      showApp();
+      await loadState();
+      return;
+    } else {
+      // Sessão inválida — limpa tudo incluindo dados locais desatualizados
+      clearSession();
+    }
   }
 
   // 3. Sem sessão → tela de login
