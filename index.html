@@ -499,19 +499,15 @@ function saveState(){
   clearTimeout(syncTimeout);
   syncTimeout=setTimeout(async()=>{
     try{
-      const res=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
-        method:'PATCH',
-        headers:{...sbHeaders(currentUser.access_token),'Prefer':'return=minimal'},
-        body:JSON.stringify({data:state,updated_at:new Date().toISOString()})
+      const res=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
+        method:'POST',
+        headers:{
+          ...sbHeaders(currentUser.access_token),
+          'Prefer':'resolution=merge-duplicates,return=minimal'
+        },
+        body:JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()})
       });
-      // Se não existe ainda, cria
-      if(res.status===404||res.status===0||(await res.text()==='0')){
-        await fetch(`${SB_URL}/rest/v1/agc_finance`,{
-          method:'POST',
-          headers:{...sbHeaders(currentUser.access_token),'Prefer':'return=minimal'},
-          body:JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()})
-        });
-      }
+      if(!res.ok){const t=await res.text();throw new Error('http '+res.status+' '+t);}
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
@@ -1196,6 +1192,7 @@ if(document.readyState==='loading'){
 } else {
   init();
 }
+
 </script>
 </body>
 </html>
