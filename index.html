@@ -168,7 +168,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 
 /* MODAIS */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);
-  z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;
+  z-index:160;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;
   opacity:0;pointer-events:none;transition:opacity .25s;overflow-y:auto}
 .modal-overlay.open{opacity:1;pointer-events:all}
 .modal{background:var(--s1);border:1px solid var(--bdr);border-radius:16px;padding:24px;
@@ -545,6 +545,7 @@ async function loadState(){
 // Salva local imediatamente + debounce para Supabase (upsert por user_id)
 function saveState(){
   localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
+  if(!currentUser){setSyncStatus('offline');return;}
   setSyncStatus('syncing');
   clearTimeout(syncTimeout);
   syncTimeout=setTimeout(async()=>{
@@ -557,7 +558,15 @@ function saveState(){
         },
         body:JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()})
       });
-      if(!res.ok){const t=await res.text();throw new Error('http '+res.status+' '+t);}
+      if(!res.ok){
+        const t=await res.text();
+        // Token expirado — tenta renovar e salvar de novo
+        if(res.status===401){
+          const renewed=await validateSession(currentUser);
+          if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
+        }
+        throw new Error('http '+res.status+' '+t);
+      }
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
@@ -617,9 +626,10 @@ function recorrentesDoMes(mes){
 // ── LOG ────────────────────────────────────────────────────────────────────────
 const tipoIconMap={criacao:'✨',edicao:'✏️',exclusao:'🗑️',pagamento:'💰',parcela:'✅'};
 function log(tipo,desc,valor){
+  if(!state.historico) state.historico=[];
   state.historico.unshift({id:uid(),tipo,descricao:desc,valor:valor||0,data:new Date().toISOString()});
   if(state.historico.length>200)state.historico=state.historico.slice(0,200);
-  saveState();
+  // NÃO chama saveState aqui — quem chama log() deve chamar saveState() depois
 }
 
 // ── CONFIRM ────────────────────────────────────────────────────────────────────
