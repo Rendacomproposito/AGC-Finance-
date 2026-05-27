@@ -362,9 +362,11 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 
 <!-- PREVISÃO -->
 <div class="panel" id="panel-previsao">
-  <div style="display:flex;gap:6px;margin-bottom:14px">
+  <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
     <button id="btn-ano-2026" class="mes-btn active" onclick="setPrevisaoAno(2026)">2026</button>
     <button id="btn-ano-2027" class="mes-btn" onclick="setPrevisaoAno(2027)">2027</button>
+    <button id="btn-ano-2028" class="mes-btn" onclick="setPrevisaoAno(2028)">2028</button>
+    <button onclick="abrirMetas()" style="margin-left:auto;background:var(--purple);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-family:var(--fh);font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s;display:flex;align-items:center;gap:5px" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">🎯 Metas</button>
   </div>
   <div class="chart-wrap"><svg id="fluxo-svg" height="160"></svg></div>
   <div class="cal-grid" id="cal-grid"></div>
@@ -384,6 +386,54 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 </div><!-- /body -->
 
 </div><!-- /app-wrapper -->
+
+<!-- ── METAS OVERLAY ────────────────────────────────────────────────────────── -->
+<div id="metas-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);backdrop-filter:blur(10px);z-index:120;overflow-y:auto;padding:20px 16px 80px">
+  <div style="max-width:480px;margin:0 auto">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:.2em;text-transform:uppercase;font-family:var(--fm)">planejamento</div>
+        <h2 style="font-family:var(--fh);font-size:22px;font-weight:900;color:var(--purple)">🎯 Metas Financeiras</h2>
+      </div>
+      <button onclick="fecharMetas()" style="background:var(--s1);border:1px solid var(--bdr);border-radius:8px;padding:8px 14px;color:var(--muted);font-family:var(--fm);font-size:12px;cursor:pointer">✕ Fechar</button>
+    </div>
+
+    <!-- Painel de inteligência: saldo + sugestões -->
+    <div id="metas-inteligencia" style="background:var(--s1);border:1px solid var(--bdr);border-radius:14px;padding:18px;margin-bottom:20px"></div>
+
+    <!-- Botão nova meta -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <button onclick="openModal('meta')" style="background:var(--purple);color:#fff;border:none;border-radius:7px;padding:8px 16px;font-family:var(--fh);font-size:12px;font-weight:700;cursor:pointer">+ Nova Meta</button>
+    </div>
+
+    <!-- Lista de metas -->
+    <div id="lista-metas"></div>
+  </div>
+</div>
+
+<!-- ── META APORTE OVERLAY ──────────────────────────────────────────────────── -->
+<div id="aporte-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);backdrop-filter:blur(8px);z-index:130;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--s1);border:1px solid var(--purple);border-radius:16px;padding:24px;width:100%;max-width:400px">
+    <div style="font-family:var(--fh);font-size:16px;font-weight:800;color:var(--purple);margin-bottom:16px">💸 Registrar Aporte</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Meta: <strong id="aporte-nome-display" style="color:var(--txt)"></strong></div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;font-family:var(--fh)">Valor do Aporte (R$)</label>
+      <input id="aporte-valor" type="number" step="0.01" placeholder="0,00"
+        style="width:100%;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:11px 14px;color:var(--txt);font-family:var(--fm);font-size:18px;outline:none;transition:border-color .2s"
+        onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--bdr)'"
+        onkeydown="if(event.key==='Enter')salvarAporte()">
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:6px;font-family:var(--fh)">Data</label>
+      <input id="aporte-data" type="date" style="width:100%;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:11px 14px;color:var(--txt);font-family:var(--fm);font-size:14px;outline:none">
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="fecharAporte()" style="flex:1;background:transparent;border:1px solid var(--bdr);border-radius:8px;padding:12px;font-family:var(--fh);font-size:14px;color:var(--muted);cursor:pointer">Cancelar</button>
+      <button onclick="salvarAporte()" style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:8px;padding:12px;font-family:var(--fh);font-size:14px;font-weight:700;cursor:pointer">Salvar</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL PRINCIPAL -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
@@ -443,7 +493,7 @@ function loadSession(){ try{ return JSON.parse(localStorage.getItem('agc-session
 function clearSession(){ localStorage.removeItem('agc-session'); localStorage.removeItem(LOCAL_KEY); }
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
-let state = {dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[]};
+let state = {dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
 let currentModal = null, editingId = null;
 let varMesFiltro = mesAtual();
 let renMesFiltro = mesAtual();
@@ -465,7 +515,7 @@ async function logout(){
   try{ await fetch(`${SB_URL}/auth/v1/logout`,{method:'POST',headers:sbHeaders(currentUser?.access_token)}); }catch(e){}
   clearSession();
   currentUser=null;
-  state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[]};
+  state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
   showLogin();
 }
 
@@ -481,7 +531,7 @@ async function loadState(){
     if(!res.ok)throw new Error('http '+res.status);
     const rows=await res.json();
     if(rows&&rows.length&&rows[0].data&&Object.keys(rows[0].data).length){
-      state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],...rows[0].data};
+      state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[],...rows[0].data};
       localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
       renderAll();
     }
@@ -540,7 +590,10 @@ function rendaDoMes(mes){
   return manual+rec;
 }
 function despesasDoMes(mes){
-  let t=state.fixas.reduce((s,f)=>s+Number(f.valor||0),0);
+  // Fixas só contam a partir do mês em que foram criadas
+  let t=state.fixas
+    .filter(f=>!f.criado_em || mes >= f.criado_em.slice(0,7))
+    .reduce((s,f)=>s+Number(f.valor||0),0);
   t+=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
   state.dividas.forEach(d=>{
     if(d.tipo_parcelado&&d.parcelas)d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)t+=Number(p.valor||0);});
@@ -581,7 +634,9 @@ function renderAll(){renderKPIs();renderAlertas();renderProximos();renderDBar();
 function renderKPIs(){
   const mes=mesAtual();
   const totalDiv=state.dividas.filter(d=>d.status!=='pago').reduce((s,d)=>s+dividaSaldo(d),0);
-  const totalFix=state.fixas.reduce((s,f)=>s+Number(f.valor||0),0);
+  const totalFix=state.fixas
+    .filter(f=>!f.criado_em || mesAtual() >= f.criado_em.slice(0,7))
+    .reduce((s,f)=>s+Number(f.valor||0),0);
   const totalVar=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
   const totalRen=rendaDoMes(mes);
   const saldo=totalRen-totalFix-totalVar;
@@ -925,6 +980,30 @@ function openModal(tipo,id){
     pagamento(){
       return `<div class="fg"><label class="flbl">Valor Pago (R$)</label><input class="finp" id="f-valor" type="number" step="0.01" placeholder="0,00"></div>
         <div class="fg"><label class="flbl">Data do Pagamento</label><input class="finp" id="f-data" type="date" value="${today()}"></div>`;
+    },
+    meta(){
+      const d=id?state.metas.find(x=>x.id===id):{};
+      const sugestoes=[5000,10000,20000,50000,100000,200000,500000];
+      const sugs=sugestoes.map(v=>`<button type="button" onclick="document.getElementById('f-valor-meta').value='${v}';this.parentElement.querySelectorAll('button').forEach(b=>b.style.background='var(--s2)');this.style.background='var(--purple)'" style="background:var(--s2);border:1px solid var(--bdr);border-radius:6px;padding:5px 10px;font-family:var(--fm);font-size:11px;color:var(--muted);cursor:pointer;transition:all .15s">${fmt(v)}</button>`).join('');
+      return `
+        <div class="fg"><label class="flbl">Nome da Meta</label><input class="finp" id="f-nome-meta" placeholder="Ex: Apartamento, Viagem, Reserva..." value="${d.nome||''}"></div>
+        <div class="fg"><label class="flbl">Ícone / Emoji</label><input class="finp" id="f-icone-meta" placeholder="🏠" maxlength="2" value="${d.icone||'🎯'}" style="font-size:22px;text-align:center"></div>
+        <div class="fg">
+          <label class="flbl">Valor da Meta (R$)</label>
+          <input class="finp" id="f-valor-meta" type="number" step="0.01" placeholder="0,00" value="${d.valor||''}" style="margin-bottom:10px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px;font-family:var(--fh)">OU ESCOLHA UM VALOR</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${sugs}</div>
+        </div>
+        <div class="fg"><label class="flbl">Prazo (mês alvo)</label><input class="finp" id="f-prazo-meta" type="month" value="${d.prazo||''}"></div>
+        <div class="fg"><label class="flbl">Descrição / Motivação</label><input class="finp" id="f-desc-meta" placeholder="Por que essa meta é importante?" value="${d.descricao||''}"></div>
+        <div class="fg"><label class="flbl">Cor</label><select class="fsel" id="f-cor-meta">
+          <option value="var(--purple)" ${(!d.cor||d.cor==='var(--purple)')?'selected':''}>🟣 Roxo</option>
+          <option value="var(--accent)" ${d.cor==='var(--accent)'?'selected':''}>🟡 Verde Limão</option>
+          <option value="var(--blue)" ${d.cor==='var(--blue)'?'selected':''}>🔵 Azul</option>
+          <option value="var(--ok)" ${d.cor==='var(--ok)'?'selected':''}>🟢 Verde</option>
+          <option value="var(--warn)" ${d.cor==='var(--warn)'?'selected':''}>🟠 Laranja</option>
+          <option value="var(--danger)" ${d.cor==='var(--danger)'?'selected':''}>🔴 Vermelho</option>
+        </select></div>`;
     }
   };
   const fn=forms[tipo];if(!fn)return;
@@ -967,7 +1046,7 @@ function saveModal(){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
     if(!nome||!valor){alert('Preencha nome e valor');return;}
     if(editingId){const idx=state.fixas.findIndex(x=>x.id===editingId);if(idx>=0){state.fixas[idx]={...state.fixas[idx],nome,valor,vencimento:gv('f-vencimento')};log('edicao',`Despesa fixa editada: "${nome}"`,valor);}}
-    else{state.fixas.push({id:uid(),nome,valor,vencimento:gv('f-vencimento')});log('criacao',`Despesa fixa: "${nome}"`,valor);}
+    else{state.fixas.push({id:uid(),nome,valor,vencimento:gv('f-vencimento'),criado_em:new Date().toISOString()});log('criacao',`Despesa fixa: "${nome}"`,valor);}
   }
   else if(currentModal==='variavel'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
@@ -989,7 +1068,15 @@ function saveModal(){
     if(dur==='meses')item.meses=parseInt(gv('f-meses')||0);
     else if(dur==='ate')item.fim=gv('f-fim');
     if(editingId){const idx=state.recorrentes.findIndex(x=>x.id===editingId);if(idx>=0){state.recorrentes[idx]=item;log('edicao',`Recorrente editada: "${nome}"`,valor);}}
-    else{state.recorrentes.push(item);log('criacao',`Receita recorrente: "${nome}"`,valor);}
+    else{state.recorrentes.push({...item,criado_em:new Date().toISOString()});log('criacao',`Receita recorrente: "${nome}"`,valor);}
+  }
+  else if(currentModal==='meta'){
+    const nome=gv('f-nome-meta');const valor=parseFloat(gv('f-valor-meta')||0);
+    if(!nome){alert('Preencha o nome da meta');return;}
+    if(!valor){alert('Defina o valor da meta');return;}
+    const item={id:editingId||uid(),nome,icone:gv('f-icone-meta')||'🎯',valor,prazo:gv('f-prazo-meta'),descricao:gv('f-desc-meta'),cor:gv('f-cor-meta')||'var(--purple)',aportes:editingId?(state.metas.find(m=>m.id===editingId)||{}).aportes||[]:[],criado_em:editingId?(state.metas.find(m=>m.id===editingId)||{}).criado_em||new Date().toISOString():new Date().toISOString()};
+    if(editingId){const idx=state.metas.findIndex(x=>x.id===editingId);if(idx>=0){state.metas[idx]=item;log('edicao',`Meta editada: "${nome}"`,valor);}}
+    else{state.metas.push(item);log('criacao',`Nova meta: "${nome}"`,valor);}
   }
   else if(currentModal==='pagamento'){
     const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Informe o valor');return;}
@@ -999,7 +1086,185 @@ function saveModal(){
     log('pagamento',`Pagamento em "${d.nome}"`,valor);
     editingId=null;
   }
+  const _modal=currentModal;
   saveState();renderAll();closeModal();
+  if(_modal==='meta'){setTimeout(()=>{abrirMetas();},100);}
+}
+
+// ── METAS ──────────────────────────────────────────────────────────────────────
+let aporteMetaId = null;
+
+function abrirMetas(){
+  document.getElementById('metas-overlay').style.display='block';
+  renderMetasInteligencia();
+  renderListaMetas();
+}
+function fecharMetas(){document.getElementById('metas-overlay').style.display='none';}
+
+function renderMetasInteligencia(){
+  const el=document.getElementById('metas-inteligencia');
+  const mes=mesAtual();
+  const saldo=rendaDoMes(mes)-despesasDoMes(mes);
+  const dividas=state.dividas.filter(d=>d.status!=='pago');
+  const divTotal=dividas.reduce((s,d)=>s+dividaSaldo(d),0);
+  const divAltas=dividas.filter(d=>Number(d.juros||0)>2).sort((a,b)=>Number(b.juros)-Number(a.juros));
+  const totalMetas=state.metas.reduce((s,m)=>s+Number(m.valor||0),0);
+  const totalAportado=state.metas.reduce((s,m)=>s+(m.aportes||[]).reduce((a,ap)=>a+Number(ap.valor||0),0),0);
+
+  let html=`<div style="font-family:var(--fh);font-size:12px;font-weight:700;color:var(--purple);margin-bottom:12px;text-transform:uppercase;letter-spacing:.1em">💡 Painel Inteligente · ${MESES_FULL[parseInt(mes.split('-')[1])-1]}</div>`;
+
+  // Saldo disponível
+  const corSaldo=saldo>0?'var(--ok)':saldo===0?'var(--warn)':'var(--danger)';
+  html+=`<div style="display:flex;justify-content:space-between;align-items:center;background:var(--s2);border-radius:10px;padding:12px;margin-bottom:10px">
+    <div><div style="font-size:10px;color:var(--muted);font-family:var(--fh);text-transform:uppercase;letter-spacing:.1em">Saldo Livre este mês</div><div style="font-family:var(--fm);font-size:20px;font-weight:700;color:${corSaldo}">${fmt(saldo)}</div></div>
+    <div style="font-size:28px">${saldo>0?'💰':saldo===0?'⚖️':'🚨'}</div>
+  </div>`;
+
+  // Sugestões inteligentes
+  html+='<div style="font-size:11px;color:var(--muted);font-family:var(--fh);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Sugestões</div>';
+
+  if(saldo<=0){
+    html+=`<div style="background:#FF3B3B12;border:1px solid #FF3B3B33;border-radius:8px;padding:10px;font-size:12px;color:var(--danger);margin-bottom:8px">🚨 Saldo negativo — priorize cortar gastos variáveis antes de aportar em metas.</div>`;
+  } else {
+    // Sugestão 1: dívidas com juros altos
+    if(divAltas.length){
+      const d=divAltas[0];
+      html+=`<div style="background:#FF950012;border:1px solid #FF950033;border-radius:8px;padding:10px;font-size:12px;color:var(--warn);margin-bottom:8px">⚡ Dívida "<strong>${d.nome}</strong>" tem juros de ${d.juros}% a.m. — quitar isso antes de qualquer meta é o melhor investimento possível.</div>`;
+    }
+    // Sugestão 2: quanto aportar
+    const sugerido=Math.floor(saldo*0.3/100)*100||Math.floor(saldo*0.3);
+    if(sugerido>0){
+      html+=`<div style="background:#BF5AF212;border:1px solid #BF5AF233;border-radius:8px;padding:10px;font-size:12px;color:var(--purple);margin-bottom:8px">🎯 Com seu saldo atual, você poderia aportar até <strong>${fmt(sugerido)}</strong> em metas (30% do saldo livre) e ainda manter uma reserva de ${fmt(saldo-sugerido)}.</div>`;
+    }
+    // Sugestão 3: reserva de emergência
+    const totalFix=state.fixas.reduce((s,f)=>s+Number(f.valor||0),0);
+    const reservaIdeal=totalFix*6;
+    const metaReserva=state.metas.find(m=>m.nome.toLowerCase().includes('reserva')||m.nome.toLowerCase().includes('emergência'));
+    if(!metaReserva&&totalFix>0){
+      html+=`<div style="background:#3D9EFF12;border:1px solid #3D9EFF33;border-radius:8px;padding:10px;font-size:12px;color:var(--blue);margin-bottom:8px">🛡️ Você não tem uma meta de reserva de emergência. O ideal seria <strong>${fmt(reservaIdeal)}</strong> (6x suas despesas fixas mensais).</div>`;
+    }
+  }
+
+  // Progresso geral das metas
+  if(state.metas.length){
+    const pct=totalMetas>0?Math.round(totalAportado/totalMetas*100):0;
+    html+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr)">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;font-family:var(--fm)"><span style="color:var(--muted)">Progresso geral</span><span style="color:var(--purple)">${pct}% · ${fmt(totalAportado)} de ${fmt(totalMetas)}</span></div>
+      <div style="height:4px;background:var(--bdr);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--purple);border-radius:4px;transition:width .5s"></div></div>
+    </div>`;
+  }
+
+  el.innerHTML=html;
+}
+
+function renderListaMetas(){
+  const el=document.getElementById('lista-metas');
+  if(!state.metas||!state.metas.length){
+    el.innerHTML='<div style="text-align:center;padding:32px 16px;color:var(--muted);font-size:13px"><div style="font-size:32px;margin-bottom:10px">🎯</div>Nenhuma meta cadastrada.<br>Crie sua primeira meta!</div>';
+    return;
+  }
+  el.innerHTML=state.metas.map(m=>{
+    const aportado=(m.aportes||[]).reduce((s,a)=>s+Number(a.valor||0),0);
+    const falta=Math.max(0,Number(m.valor||0)-aportado);
+    const pct=m.valor>0?Math.min(100,Math.round(aportado/m.valor*100)):0;
+    const cor=m.cor||'var(--purple)';
+    // Prazo
+    let prazoHtml='';
+    if(m.prazo){
+      const hoje=mesAtual();
+      const mesesRestantes=(parseInt(m.prazo.split('-')[0])-parseInt(hoje.split('-')[0]))*12+(parseInt(m.prazo.split('-')[1])-parseInt(hoje.split('-')[1]));
+      const mensalNecessario=mesesRestantes>0?Math.ceil(falta/mesesRestantes):falta;
+      prazoHtml=`<div style="font-size:11px;color:var(--muted);margin-top:4px">Prazo: ${m.prazo} · ${mesesRestantes>0?mesesRestantes+'m restantes':'Prazo atingido'} · Precisa aportar ${fmt(mensalNecessario)}/mês</div>`;
+    }
+    // Histórico de aportes
+    const aportesHtml=(m.aportes||[]).length?`
+      <div style="margin-top:10px;border-top:1px solid var(--bdr);padding-top:10px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;font-family:var(--fh)">Aportes</div>
+        ${(m.aportes||[]).slice().reverse().map(a=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1a1a1a;font-size:11px">
+            <span style="color:var(--muted);font-family:var(--fm)">${formatDate(a.data)}</span>
+            <span style="color:${cor};font-weight:700;font-family:var(--fm)">${fmt(a.valor)}</span>
+            <button onclick="removerAporte('${m.id}','${a.id}')" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 6px">✕</button>
+          </div>`).join('')}
+      </div>`:'';
+
+    return `<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;transition:border-color .2s" onmouseover="this.style.borderColor='${cor}'" onmouseout="this.style.borderColor='var(--bdr)'">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="font-size:28px;line-height:1;flex-shrink:0">${m.icone||'🎯'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--fh);font-size:15px;font-weight:700">${m.nome}</div>
+          ${m.descricao?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${m.descricao}</div>`:''}
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px">
+            <span style="color:${cor};font-family:var(--fm);font-weight:700">${fmt(aportado)}</span>
+            <span style="color:var(--muted);font-family:var(--fm)">meta: ${fmt(m.valor)}</span>
+          </div>
+          <div style="height:6px;background:var(--bdr);border-radius:6px;overflow:hidden;margin-top:6px">
+            <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width .6s ease"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--fm)">
+            <span>${pct}% concluído</span>
+            <span>falta ${fmt(falta)}</span>
+          </div>
+          ${prazoHtml}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+        <button onclick="abrirAporte('${m.id}')" style="background:${cor};color:${cor==='var(--accent)'?'#000':'#fff'};border:none;border-radius:6px;padding:6px 12px;font-family:var(--fh);font-size:11px;font-weight:700;cursor:pointer">+ Aportar</button>
+        <button onclick="openModal('meta','${m.id}');fecharMetas()" style="background:var(--s2);border:1px solid var(--bdr);border-radius:6px;padding:6px 12px;font-family:var(--fm);font-size:11px;color:var(--muted);cursor:pointer">✏️ Editar</button>
+        <button onclick="deletarMeta('${m.id}','${m.nome}')" style="background:var(--s2);border:1px solid var(--bdr);border-radius:6px;padding:6px 12px;font-family:var(--fm);font-size:11px;color:var(--muted);cursor:pointer">🗑</button>
+        ${pct>=100?`<span style="background:#30D15820;border:1px solid var(--ok);border-radius:6px;padding:6px 12px;font-family:var(--fh);font-size:11px;color:var(--ok);font-weight:700">🏆 Concluída!</span>`:''}
+      </div>
+      ${aportesHtml}
+    </div>`;
+  }).join('');
+}
+
+function abrirAporte(metaId){
+  aporteMetaId=metaId;
+  const m=state.metas.find(x=>x.id===metaId);
+  if(!m)return;
+  document.getElementById('aporte-nome-display').textContent=m.nome;
+  document.getElementById('aporte-valor').value='';
+  document.getElementById('aporte-data').value=today();
+  const el=document.getElementById('aporte-overlay');
+  el.style.display='flex';
+  setTimeout(()=>document.getElementById('aporte-valor').focus(),100);
+}
+function fecharAporte(){document.getElementById('aporte-overlay').style.display='none';aporteMetaId=null;}
+
+function salvarAporte(){
+  const valor=parseFloat(document.getElementById('aporte-valor').value||0);
+  const data=document.getElementById('aporte-data').value||today();
+  if(!valor||!aporteMetaId){alert('Informe o valor');return;}
+  const m=state.metas.find(x=>x.id===aporteMetaId);
+  if(!m)return;
+  if(!m.aportes)m.aportes=[];
+  m.aportes.push({id:uid(),valor,data});
+  log('pagamento',`Aporte de ${fmt(valor)} em "${m.nome}"`,valor);
+  saveState();
+  fecharAporte();
+  renderMetasInteligencia();
+  renderListaMetas();
+}
+
+function removerAporte(metaId,aporteId){
+  const m=state.metas.find(x=>x.id===metaId);
+  if(!m)return;
+  m.aportes=(m.aportes||[]).filter(a=>a.id!==aporteId);
+  log('exclusao','Aporte removido',0);
+  saveState();
+  renderMetasInteligencia();
+  renderListaMetas();
+}
+
+function deletarMeta(id,nome){
+  confirmar(`Apagar meta "${nome}" e todos os aportes?`,()=>{
+    state.metas=state.metas.filter(m=>m.id!==id);
+    log('exclusao',`Meta excluída: "${nome}"`,0);
+    saveState();
+    renderMetasInteligencia();
+    renderListaMetas();
+  });
 }
 
 // ── TABS ───────────────────────────────────────────────────────────────────────
