@@ -373,6 +373,18 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
     <div class="kpi"><div class="kpi-lbl">Variáveis (mês)</div><div class="kpi-val c-purple" id="kpi-var">R$ 0</div><div class="kpi-sub" id="kpi-var-n">0 registros</div></div>
     <div class="kpi"><div class="kpi-lbl">Renda este mês</div><div class="kpi-val c-ok" id="kpi-ren">R$ 0</div><div class="kpi-sub">acumulado</div></div>
     <div class="kpi full"><div class="kpi-lbl">Saldo Livre</div><div class="kpi-val" id="kpi-saldo">R$ 0</div><div class="kpi-sub">após fixas + variáveis</div></div>
+    <div class="kpi full" id="kpi-diario-wrap" style="background:linear-gradient(135deg,#0d1a00,#111);border-color:#C8FF0030;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="kpi-lbl" style="color:var(--accent)">Disponível por dia</div>
+          <div class="kpi-val c-accent" id="kpi-diario">R$ 0</div>
+          <div class="kpi-sub" id="kpi-diario-sub">calculando...</div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--muted);font-family:var(--fm);line-height:1.6">
+          <div id="kpi-diario-ctx"></div>
+        </div>
+      </div>
+    </div>
   </div>
   <div id="alert-visao"></div>
   <div class="sec">
@@ -1024,6 +1036,26 @@ function renderKPIs(){
   const se=document.getElementById('kpi-saldo');
   se.textContent=fmt(saldo);
   se.className='kpi-val '+(saldo>=0?'c-ok':'c-danger');
+  // Gasto diário — só mostra quando tem renda cadastrada
+  const wrap=document.getElementById('kpi-diario-wrap');
+  if(wrap&&totalRen>0){
+    wrap.style.display='';
+    const saldoReal=rendaDoMes(mes)-despesasDoMes(mes);
+    const hoje=new Date();
+    const ultimoDia=new Date(hoje.getFullYear(),hoje.getMonth()+1,0).getDate();
+    const diasRestantes=Math.max(1,ultimoDia-hoje.getDate()+1);
+    const gastoDiario=saldoReal>0?saldoReal/diasRestantes:0;
+    document.getElementById('kpi-diario').textContent=fmt(gastoDiario);
+    document.getElementById('kpi-diario-sub').textContent=
+      saldoReal>0?`${diasRestantes} dias restantes no mês`:'saldo negativo — revise gastos';
+    document.getElementById('kpi-diario').className='kpi-val '+(saldoReal>0?'c-accent':'c-danger');
+    document.getElementById('kpi-diario-ctx').innerHTML=
+      saldoReal>0
+        ?`saldo livre: ${fmt(saldoReal)}<br>÷ ${diasRestantes} dias`
+        :`déficit: ${fmt(Math.abs(saldoReal))}`;
+  } else if(wrap){
+    wrap.style.display='none';
+  }
 }
 
 // ── UTILS DE DATA ─────────────────────────────────────────────────────────────
@@ -1301,48 +1333,57 @@ function renderPrevisaoInsights(mesesAno,saldos){
   const el=document.getElementById('prev-insights');
   if(!el) return;
   let html='';
+  const MESES_FULL_LOCAL=MESES_FULL;
 
-  // Resumo anual
+  // ── Mês crítico (primeiro card — ação imediata) ───────────────────────────
+  const idxMinSaldo=saldos.indexOf(Math.min(...saldos));
+  const minSaldo=saldos[idxMinSaldo];
+  if(minSaldo<0){
+    const nomeMesCritico=MESES_FULL_LOCAL[idxMinSaldo];
+    // Mês anterior ao crítico para guardar o dinheiro
+    const idxPrep=Math.max(0,idxMinSaldo-1);
+    const nomePrep=MESES_FULL_LOCAL[idxPrep];
+    const valorGuardar=fmt(Math.abs(minSaldo));
+    html+=`<div style="background:#FF3B3B08;border:1px solid #FF3B3B44;border-radius:12px;padding:16px;margin-bottom:12px">
+      <div style="font-family:var(--fh);font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px">Atenção</div>
+      <div style="font-family:var(--fh);font-size:15px;font-weight:800;color:var(--txt);margin-bottom:6px;line-height:1.3">${nomeMesCritico} está no vermelho — <span style="color:var(--danger)">${fmt(Math.abs(minSaldo))}</span> de déficit projetado</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5">Para cobrir, guarde <strong style="color:var(--warn)">${valorGuardar}</strong> extra em ${nomePrep} antes que as contas cheguem.</div>
+    </div>`;
+  }
+
+  // ── Resumo anual ──────────────────────────────────────────────────────────
   const totalRen=mesesAno.reduce((s,m)=>s+rendaDoMes(m),0);
   const totalDep=mesesAno.reduce((s,m)=>s+despesasDoMes(m),0);
   const saldoAno=totalRen-totalDep;
-  const mesesNeg=saldos.filter(s=>s<0).length;
   html+=`<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:12px;padding:16px;margin-bottom:12px">
-    <div style="font-family:var(--fh);font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Resumo ${previsaoAno}</div>
+    <div style="font-family:var(--fh);font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px">Resumo ${previsaoAno}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
-      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--ok)">${fmt(totalRen)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Renda</div></div>
-      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--danger)">${fmt(totalDep)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Despesas</div></div>
-      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:${saldoAno>=0?'var(--ok)':'var(--danger)'}">${fmt(saldoAno)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Saldo</div></div>
+      <div><div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--ok)">${fmt(totalRen)}</div><div style="font-size:9px;color:var(--muted);margin-top:3px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Renda</div></div>
+      <div><div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--danger)">${fmt(totalDep)}</div><div style="font-size:9px;color:var(--muted);margin-top:3px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Despesas</div></div>
+      <div><div style="font-family:var(--fm);font-size:14px;font-weight:700;color:${saldoAno>=0?'var(--ok)':'var(--danger)'}">${fmt(saldoAno)}</div><div style="font-size:9px;color:var(--muted);margin-top:3px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Saldo</div></div>
     </div>
-    ${mesesNeg>0?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr);font-size:11px;color:var(--danger);display:flex;align-items:center;gap:6px"><span>⚠</span>${mesesNeg} mês(es) com saldo negativo projetado</div>`:''}
   </div>`;
 
-  // Ponto de quitação
+  // ── Livre de dívidas em ───────────────────────────────────────────────────
   const quit=calcQuitacao();
   if(quit){
     if(quit.mediaSaldo>0&&quit.mesesRestantes){
-      const urgencia=quit.mesesRestantes<=12?'var(--ok)':quit.mesesRestantes<=24?'var(--warn)':'var(--danger)';
-      html+=`<div style="background:var(--s1);border:1px solid ${urgencia}33;border-radius:12px;padding:16px;margin-bottom:12px">
-        <div style="font-family:var(--fh);font-size:11px;font-weight:700;color:${urgencia};text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">🏁 Ponto de Quitação</div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end">
-          <div>
-            <div style="font-family:var(--fh);font-size:20px;font-weight:900;color:${urgencia}">${quit.mesQuit}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">${quit.mesesRestantes} meses · saldo médio ${fmt(quit.mediaSaldo)}/mês</div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-family:var(--fm);font-size:12px;font-weight:700;color:var(--danger)">${fmt(quit.totalDiv)}</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px">total em dívidas</div>
-          </div>
+      const cor=quit.mesesRestantes<=12?'var(--ok)':quit.mesesRestantes<=24?'var(--warn)':'var(--danger)';
+      html+=`<div style="background:var(--s1);border:1px solid ${cor}44;border-radius:12px;padding:16px;margin-bottom:12px">
+        <div style="font-family:var(--fh);font-size:10px;font-weight:700;color:${cor};text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px">Livre de dívidas em</div>
+        <div style="font-family:var(--fh);font-size:28px;font-weight:900;color:${cor};line-height:1;margin-bottom:6px">${quit.mesQuit}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">se mantiver o ritmo atual</div>
+        <div style="display:flex;justify-content:space-between;padding-top:10px;border-top:1px solid var(--bdr)">
+          <div><div style="font-size:10px;color:var(--muted);font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Faltam</div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--txt)">${quit.mesesRestantes} meses</div></div>
+          <div style="text-align:right"><div style="font-size:10px;color:var(--muted);font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Total em dívidas</div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--danger)">${fmt(quit.totalDiv)}</div></div>
+          <div style="text-align:right"><div style="font-size:10px;color:var(--muted);font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Sobra/mês</div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:${cor}">${fmt(quit.mediaSaldo)}</div></div>
         </div>
-        <div style="margin-top:10px;height:4px;background:var(--bdr);border-radius:4px;overflow:hidden">
-          <div style="height:100%;background:${urgencia};border-radius:4px;transition:width .6s;width:${Math.min(100,Math.round(100-quit.mesesRestantes/36*100))}%"></div>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:5px;font-family:var(--fm)">Baseado na média dos próximos 6 meses. Valores projetados.</div>
       </div>`;
     } else {
-      html+=`<div style="background:#FF3B3B08;border:1px solid #FF3B3B33;border-radius:12px;padding:14px;margin-bottom:12px;font-size:12px;color:var(--danger)">
-        <div style="font-weight:700;margin-bottom:4px">⚠ Saldo insuficiente para quitar dívidas</div>
-        <div style="color:var(--muted)">Com o fluxo atual (saldo médio ${fmt(quit.mediaSaldo)}/mês), as dívidas de ${fmt(quit.totalDiv)} tendem a crescer. Revise despesas fixas ou aumente a renda.</div>
+      html+=`<div style="background:#FF3B3B08;border:1px solid #FF3B3B33;border-radius:12px;padding:14px;margin-bottom:12px">
+        <div style="font-family:var(--fh);font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px">Dívidas crescendo</div>
+        <div style="font-size:13px;color:var(--txt);margin-bottom:4px;font-family:var(--fh);font-weight:600">Saldo insuficiente para quitar</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5">Com o ritmo atual, as dívidas de <strong style="color:var(--danger)">${fmt(quit.totalDiv)}</strong> tendem a crescer. Corte despesas fixas ou aumente a renda para reverter.</div>
       </div>`;
     }
   }
