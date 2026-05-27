@@ -36,7 +36,8 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
   gap:3px;padding:4px 2px;cursor:pointer;border:none;background:transparent;
   color:var(--muted);transition:color .18s;min-width:0;-webkit-tap-highlight-color:transparent}
 .bnav-item.active{color:var(--accent)}
-.bnav-icon{font-size:18px;line-height:1;transition:transform .18s}
+.bnav-icon{width:20px;height:20px;flex-shrink:0;transition:transform .18s;display:flex;align-items:center;justify-content:center}
+.bnav-icon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:stroke .18s}
 .bnav-item.active .bnav-icon{transform:translateY(-2px)}
 .bnav-lbl{font-family:var(--fh);font-size:9px;font-weight:700;letter-spacing:.03em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px;text-align:center}
@@ -148,6 +149,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 .cal-mes{background:var(--s1);border:1px solid var(--bdr);border-radius:11px;padding:14px;cursor:pointer;transition:all .2s}
 .cal-mes:hover{border-color:var(--accent);transform:translateY(-1px)}
 .cal-mes.atual{border-color:var(--blue)}
+.cal-mes.critico{border-color:#FF3B3B55;background:#FF3B3B08}
+.cal-mes.critico .cal-mes-nome{color:var(--danger)}
+.cal-mes.passado{opacity:.55}
 .cal-mes-nome{font-family:var(--fh);font-size:13px;font-weight:700;margin-bottom:10px;color:var(--accent)}
 .cal-mes-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;font-family:var(--fm)}
 .cal-mes-row span:first-child{color:var(--muted)}
@@ -325,22 +329,22 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 <!-- BOTTOM NAV -->
 <nav class="bnav" id="bnav">
   <button class="bnav-item active" id="bnav-visao" onclick="switchTab('visao')">
-    <span class="bnav-icon">◉</span><span class="bnav-lbl">Visão</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="bnav-lbl">Visão</span>
   </button>
   <button class="bnav-item" id="bnav-dividas" onclick="switchTab('dividas')">
-    <span class="bnav-icon">💳</span><span class="bnav-lbl">Dívidas</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg></span><span class="bnav-lbl">Dívidas</span>
   </button>
   <button class="bnav-item" id="bnav-despesas" onclick="switchTab('despesas')">
-    <span class="bnav-icon">📌</span><span class="bnav-lbl">Despesas</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><path d="M5 3h14v19l-2.5-2L14 22l-2-2-2 2-2.5-2L5 22V3z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="13" y2="14"/></svg></span><span class="bnav-lbl">Despesas</span>
   </button>
   <button class="bnav-item" id="bnav-renda" onclick="switchTab('renda')">
-    <span class="bnav-icon">💰</span><span class="bnav-lbl">Renda</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><polyline points="3 17 8 12 12 16 21 7"/><polyline points="15 7 21 7 21 13"/></svg></span><span class="bnav-lbl">Renda</span>
   </button>
   <button class="bnav-item" id="bnav-previsao" onclick="switchTab('previsao')">
-    <span class="bnav-icon">📅</span><span class="bnav-lbl">Previsão</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="17" rx="2"/><line x1="3" y1="11" x2="21" y2="11"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg></span><span class="bnav-lbl">Previsão</span>
   </button>
   <button class="bnav-item" id="bnav-historico" onclick="switchTab('historico')">
-    <span class="bnav-icon">📋</span><span class="bnav-lbl">Histórico</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></span><span class="bnav-lbl">Histórico</span>
   </button>
 </nav>
 
@@ -426,6 +430,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
   <div id="prev-ano-nav" style="margin-bottom:14px"></div>
   <div class="chart-wrap"><svg id="fluxo-svg" height="160"></svg></div>
   <div class="cal-grid" id="cal-grid"></div>
+  <div id="prev-insights"></div>
 </div>
 
 <!-- HISTÓRICO -->
@@ -724,7 +729,13 @@ function despesasDoMes(mes){
     .reduce((s,f)=>s+Number(f.valor||0),0);
   t+=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
   state.dividas.forEach(d=>{
-    if(d.tipo_parcelado&&d.parcelas)d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)t+=Number(p.valor||0);});
+    if(d.status==='pago') return;
+    if(d.tipo_parcelado&&d.parcelas){
+      d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)t+=Number(p.valor||0);});
+    } else if(d.vencimento&&d.vencimento.startsWith(mes)){
+      // Dívida simples com vencimento neste mês — entra pelo saldo devedor
+      t+=dividaSaldo(d);
+    }
   });
   return t;
 }
@@ -1221,11 +1232,14 @@ function renderDestino(){
     .filter(f=>!f.criado_em || mes >= f.criado_em.slice(0,7))
     .reduce((s,f)=>s+Number(f.valor||0),0);
   const vr=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
-  // Dívidas: apenas o que SAIRÁ do bolso neste mês (pagamentos manuais + parcelas não pagas)
+  // Dívidas: apenas o que SAIRÁ do bolso neste mês
   let divMes=0;
   state.dividas.forEach(d=>{
+    if(d.status==='pago') return;
     if(d.tipo_parcelado&&d.parcelas){
       d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)divMes+=Number(p.valor||0);});
+    } else if(d.vencimento&&d.vencimento.startsWith(mes)){
+      divMes+=dividaSaldo(d);
     }
   });
   const livre=Math.max(0,ren-fix-vr-divMes);
@@ -1264,70 +1278,169 @@ function setPrevisaoAno(ano){
   renderPrevisao();
 }
 
+function calcQuitacao(){
+  const totalDiv=state.dividas.filter(d=>d.status!=='pago').reduce((s,d)=>s+dividaSaldo(d),0);
+  if(!totalDiv) return null;
+  // Média do saldo livre dos próximos 6 meses
+  const hoje=new Date();
+  let somaLivre=0,mesesComRenda=0;
+  for(let i=0;i<6;i++){
+    const d=new Date(hoje.getFullYear(),hoje.getMonth()+i,1);
+    const m=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const ren=rendaDoMes(m); const dep=despesasDoMes(m);
+    somaLivre+=ren-dep; if(ren>0) mesesComRenda++;
+  }
+  const mediaSaldo=mesesComRenda>0?somaLivre/6:0;
+  if(mediaSaldo<=0) return {totalDiv,mediaSaldo,mesesRestantes:null};
+  const mesesRestantes=Math.ceil(totalDiv/mediaSaldo);
+  const dataQuit=new Date(hoje.getFullYear(),hoje.getMonth()+mesesRestantes,1);
+  return {totalDiv,mediaSaldo,mesesRestantes,dataQuit,mesQuit:MESES_FULL[dataQuit.getMonth()]+' '+dataQuit.getFullYear()};
+}
+
+function renderPrevisaoInsights(mesesAno,saldos){
+  const el=document.getElementById('prev-insights');
+  if(!el) return;
+  let html='';
+
+  // Resumo anual
+  const totalRen=mesesAno.reduce((s,m)=>s+rendaDoMes(m),0);
+  const totalDep=mesesAno.reduce((s,m)=>s+despesasDoMes(m),0);
+  const saldoAno=totalRen-totalDep;
+  const mesesNeg=saldos.filter(s=>s<0).length;
+  html+=`<div style="background:var(--s1);border:1px solid var(--bdr);border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-family:var(--fh);font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Resumo ${previsaoAno}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--ok)">${fmt(totalRen)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Renda</div></div>
+      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--danger)">${fmt(totalDep)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Despesas</div></div>
+      <div><div style="font-family:var(--fm);font-size:13px;font-weight:700;color:${saldoAno>=0?'var(--ok)':'var(--danger)'}">${fmt(saldoAno)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px;font-family:var(--fh);text-transform:uppercase;letter-spacing:.06em">Saldo</div></div>
+    </div>
+    ${mesesNeg>0?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr);font-size:11px;color:var(--danger);display:flex;align-items:center;gap:6px"><span>⚠</span>${mesesNeg} mês(es) com saldo negativo projetado</div>`:''}
+  </div>`;
+
+  // Ponto de quitação
+  const quit=calcQuitacao();
+  if(quit){
+    if(quit.mediaSaldo>0&&quit.mesesRestantes){
+      const urgencia=quit.mesesRestantes<=12?'var(--ok)':quit.mesesRestantes<=24?'var(--warn)':'var(--danger)';
+      html+=`<div style="background:var(--s1);border:1px solid ${urgencia}33;border-radius:12px;padding:16px;margin-bottom:12px">
+        <div style="font-family:var(--fh);font-size:11px;font-weight:700;color:${urgencia};text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">🏁 Ponto de Quitação</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end">
+          <div>
+            <div style="font-family:var(--fh);font-size:20px;font-weight:900;color:${urgencia}">${quit.mesQuit}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">${quit.mesesRestantes} meses · saldo médio ${fmt(quit.mediaSaldo)}/mês</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--fm);font-size:12px;font-weight:700;color:var(--danger)">${fmt(quit.totalDiv)}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">total em dívidas</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;height:4px;background:var(--bdr);border-radius:4px;overflow:hidden">
+          <div style="height:100%;background:${urgencia};border-radius:4px;transition:width .6s;width:${Math.min(100,Math.round(100-quit.mesesRestantes/36*100))}%"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:5px;font-family:var(--fm)">Baseado na média dos próximos 6 meses. Valores projetados.</div>
+      </div>`;
+    } else {
+      html+=`<div style="background:#FF3B3B08;border:1px solid #FF3B3B33;border-radius:12px;padding:14px;margin-bottom:12px;font-size:12px;color:var(--danger)">
+        <div style="font-weight:700;margin-bottom:4px">⚠ Saldo insuficiente para quitar dívidas</div>
+        <div style="color:var(--muted)">Com o fluxo atual (saldo médio ${fmt(quit.mediaSaldo)}/mês), as dívidas de ${fmt(quit.totalDiv)} tendem a crescer. Revise despesas fixas ou aumente a renda.</div>
+      </div>`;
+    }
+  }
+
+  el.innerHTML=html;
+}
+
 function renderPrevisao(){
   renderPrevNav();
   const mes=mesAtual();
   const mesesAno=Array.from({length:12},(_,i)=>`${previsaoAno}-${String(i+1).padStart(2,'0')}`);
+  const saldos=mesesAno.map(m=>rendaDoMes(m)-despesasDoMes(m));
   const cal=document.getElementById('cal-grid');
+  // Saldo acumulado para mostrar no card
+  let acum=0;
   cal.innerHTML=mesesAno.map((m,i)=>{
     const ren=rendaDoMes(m);
     const dep=despesasDoMes(m);
-    const sal=ren-dep;
+    const sal=saldos[i];
+    acum+=sal;
     const isAtual=m===mes;
-    return `<div class="cal-mes ${isAtual?'atual':''}" onclick="abrirDetalhe('${m}')"><div class="cal-mes-nome">${MESES_FULL[i]}</div><div class="cal-mes-row"><span>Renda</span><span style="color:var(--ok)">${fmt(ren)}</span></div><div class="cal-mes-row"><span>Despesas</span><span style="color:var(--danger)">${fmt(dep)}</span></div><div class="cal-saldo"><span>Saldo</span><span style="color:${sal>=0?'var(--ok)':'var(--danger)'}">${fmt(sal)}</span></div></div>`;
+    const isCritico=sal<0;
+    const isPassado=m<mes;
+    const classes=[isAtual?'atual':'',isCritico?'critico':'',isPassado?'passado':''].filter(Boolean).join(' ');
+    return `<div class="cal-mes ${classes}" onclick="abrirDetalhe('${m}')">
+      <div class="cal-mes-nome">${MESES_FULL[i]}</div>
+      <div class="cal-mes-row"><span>Renda</span><span style="color:var(--ok)">${fmt(ren)}</span></div>
+      <div class="cal-mes-row"><span>Despesas</span><span style="color:var(--danger)">${fmt(dep)}</span></div>
+      <div class="cal-saldo"><span>Saldo</span><span style="color:${sal>=0?'var(--ok)':'var(--danger)'}">${fmt(sal)}</span></div>
+      <div style="font-size:9px;color:${acum>=0?'var(--muted)':'var(--danger)'};margin-top:5px;font-family:var(--fm);text-align:right">acum. ${fmt(acum)}</div>
+    </div>`;
   }).join('');
-  renderChart(mesesAno);
+  renderChart(mesesAno,saldos);
+  renderPrevisaoInsights(mesesAno,saldos);
 }
 
-function renderChart(mesesAno){
+function renderChart(mesesAno,saldos){
   const svg=document.getElementById('fluxo-svg');
   if(!svg)return;
   if(!mesesAno)mesesAno=Array.from({length:12},(_,i)=>`${previsaoAno}-${String(i+1).padStart(2,'0')}`);
   const W=Math.max(700,mesesAno.length*56+80);
-  const H=160;
-  svg.setAttribute('width',W);svg.setAttribute('height',H);
-  const data=mesesAno.map(m=>({ren:rendaDoMes(m),dep:despesasDoMes(m)}));
+  const H=170;
+  const LEGEND_H=36;
+  svg.setAttribute('width',W);
+  const data=mesesAno.map((m,i)=>({ren:rendaDoMes(m),dep:despesasDoMes(m),sal:saldos?saldos[i]:rendaDoMes(m)-despesasDoMes(m)}));
   const maxV=Math.max(...data.map(d=>Math.max(d.ren,d.dep)),1);
-  const pad={l:50,r:20,t:10,b:30};
-  const cW=W-pad.l-pad.r;const cH=H-pad.t-pad.b;
+  const pad={l:50,r:20,t:12,b:30};
+  const cW=W-pad.l-pad.r; const cH=H-pad.t-pad.b;
   const bW=Math.floor(cW/mesesAno.length);
   const bPad=6;
   let svgHtml='';
   // axis
-  svgHtml+=`<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H-pad.b}" stroke="#333" stroke-width="1"/>`;
-  svgHtml+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="#333" stroke-width="1"/>`;
-  // grid lines
+  svgHtml+=`<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H-pad.b}" stroke="#2a2a2a" stroke-width="1"/>`;
+  svgHtml+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="#2a2a2a" stroke-width="1"/>`;
+  // grid + labels
   [0.25,0.5,0.75,1].forEach(f=>{
     const y=pad.t+cH*(1-f);
     svgHtml+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#1a1a1a" stroke-width="1"/>`;
-    svgHtml+=`<text x="${pad.l-4}" y="${y+4}" text-anchor="end" fill="#444" font-size="9" font-family="JetBrains Mono,monospace">${Math.round(maxV*f/1000)}k</text>`;
+    svgHtml+=`<text x="${pad.l-4}" y="${y+4}" text-anchor="end" fill="#3a3a3a" font-size="9" font-family="JetBrains Mono,monospace">${Math.round(maxV*f/1000)}k</text>`;
   });
-  // bars + labels
-  const saldoPoints=[];
+  // bars
+  const saldoPts=[]; const saldoNeg=[];
   data.forEach((d,i)=>{
     const x=pad.l+i*bW;
     const hR=cH*(d.ren/maxV);
     const hD=cH*(d.dep/maxV);
     const half=Math.floor((bW-bPad*2)/2);
-    svgHtml+=`<rect x="${x+bPad}" y="${pad.t+cH-hR}" width="${half}" height="${hR}" fill="#3D9EFF" rx="2" opacity=".7"/>`;
-    svgHtml+=`<rect x="${x+bPad+half+2}" y="${pad.t+cH-hD}" width="${half}" height="${hD}" fill="#FF3B3B" rx="2" opacity=".7"/>`;
-    svgHtml+=`<text x="${x+bW/2}" y="${H-pad.b+14}" text-anchor="middle" fill="#555" font-size="8" font-family="JetBrains Mono,monospace">${MESES[i]}</text>`;
-    const sal=d.ren-d.dep;
-    const sy=pad.t+cH-cH*Math.max(0,Math.min(sal,maxV))/maxV;
-    saldoPoints.push(`${x+bW/2},${sy}`);
+    svgHtml+=`<rect x="${x+bPad}" y="${pad.t+cH-hR}" width="${half}" height="${hR}" fill="#3D9EFF" rx="2" opacity=".65"/>`;
+    svgHtml+=`<rect x="${x+bPad+half+2}" y="${pad.t+cH-hD}" width="${half}" height="${hD}" fill="#FF3B3B" rx="2" opacity=".65"/>`;
+    svgHtml+=`<text x="${x+bW/2}" y="${H-pad.b+13}" text-anchor="middle" fill="#444" font-size="8" font-family="JetBrains Mono,monospace">${MESES[i]}</text>`;
+    const sy=pad.t+cH-cH*Math.max(0,Math.min(d.sal,maxV))/maxV;
+    const cx=x+bW/2;
+    saldoPts.push({x:cx,y:sy,pos:d.sal>=0});
+    saldoNeg.push(d.sal<0);
   });
-  // saldo line
-  if(saldoPoints.length>1)svgHtml+=`<polyline points="${saldoPoints.join(' ')}" fill="none" stroke="#C8FF00" stroke-width="2" stroke-linejoin="round"/>`;
-  saldoPoints.forEach(p=>{const[x,y]=p.split(',');svgHtml+=`<circle cx="${x}" cy="${y}" r="3" fill="#C8FF00"/>`;});
-  // legend
-  svgHtml+=`<rect x="${pad.l}" y="${H-pad.b+22}" width="10" height="8" fill="#3D9EFF" rx="1"/>`;
-  svgHtml+=`<text x="${pad.l+14}" y="${H-pad.b+30}" fill="#666" font-size="9" font-family="JetBrains Mono,monospace">Renda</text>`;
-  svgHtml+=`<rect x="${pad.l+55}" y="${H-pad.b+22}" width="10" height="8" fill="#FF3B3B" rx="1"/>`;
-  svgHtml+=`<text x="${pad.l+69}" y="${H-pad.b+30}" fill="#666" font-size="9" font-family="JetBrains Mono,monospace">Despesas</text>`;
-  svgHtml+=`<circle cx="${pad.l+125}" cy="${H-pad.b+26}" r="4" fill="#C8FF00"/>`;
-  svgHtml+=`<text x="${pad.l+133}" y="${H-pad.b+30}" fill="#666" font-size="9" font-family="JetBrains Mono,monospace">Saldo</text>`;
+  // Saldo fill area (below line, green positive / red negative per segment)
+  if(saldoPts.length>1){
+    const base=H-pad.b;
+    for(let i=0;i<saldoPts.length-1;i++){
+      const p1=saldoPts[i]; const p2=saldoPts[i+1];
+      const color=p1.pos&&p2.pos?'#C8FF00':p1.pos||p2.pos?'#FF9500':'#FF3B3B';
+      svgHtml+=`<polygon points="${p1.x},${p1.y} ${p2.x},${p2.y} ${p2.x},${base} ${p1.x},${base}" fill="${color}" opacity=".08"/>`;
+    }
+    // Line
+    svgHtml+=`<polyline points="${saldoPts.map(p=>`${p.x},${p.y}`).join(' ')}" fill="none" stroke="#C8FF00" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // Points — color by sign
+    saldoPts.forEach(p=>{svgHtml+=`<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${p.pos?'#C8FF00':'#FF3B3B'}" stroke="#080808" stroke-width="1"/>`;});
+  }
+  // Legend
+  const LY=H+LEGEND_H-18;
+  svgHtml+=`<rect x="${pad.l}" y="${LY}" width="10" height="8" fill="#3D9EFF" rx="1"/>`;
+  svgHtml+=`<text x="${pad.l+14}" y="${LY+8}" fill="#555" font-size="9" font-family="JetBrains Mono,monospace">Renda</text>`;
+  svgHtml+=`<rect x="${pad.l+58}" y="${LY}" width="10" height="8" fill="#FF3B3B" rx="1"/>`;
+  svgHtml+=`<text x="${pad.l+72}" y="${LY+8}" fill="#555" font-size="9" font-family="JetBrains Mono,monospace">Despesas</text>`;
+  svgHtml+=`<circle cx="${pad.l+136}" cy="${LY+4}" r="4" fill="#C8FF00"/>`;
+  svgHtml+=`<text x="${pad.l+144}" y="${LY+8}" fill="#555" font-size="9" font-family="JetBrains Mono,monospace">Saldo mensal</text>`;
   svg.innerHTML=svgHtml;
-  svg.setAttribute('height',H+20);
+  svg.setAttribute('height',H+LEGEND_H);
 }
 
 function abrirDetalhe(mes){
@@ -1356,10 +1469,21 @@ function abrirDetalhe(mes){
   if(vars.length)vars.forEach(v=>{html+=`<div class="det-row"><span>${v.nome}</span><span style="color:var(--purple)">${fmt(v.valor)}</span></div>`;});
   else html+='<div class="det-row"><span style="color:var(--muted)">Nenhum</span><span>—</span></div>';
   html+='</div>';
-  // PARCELAS
-  const parcs=[];
-  state.dividas.forEach(d=>{if(d.tipo_parcelado&&d.parcelas)d.parcelas.forEach((p,i)=>{if((p.data||'').startsWith(mes)&&!p.paga)parcs.push({nome:`${d.nome} parc. ${i+1}`,valor:p.valor});});});
-  if(parcs.length){html+='<div class="det-block"><div class="det-sec-title">💳 Parcelas de Dívidas</div>';parcs.forEach(p=>{html+=`<div class="det-row"><span>${p.nome}</span><span style="color:var(--danger)">${fmt(p.valor)}</span></div>`;});html+='</div>';}
+  // DÍVIDAS DO MÊS (parceladas + simples com vencimento)
+  const divsMes=[];
+  state.dividas.forEach(d=>{
+    if(d.status==='pago') return;
+    if(d.tipo_parcelado&&d.parcelas){
+      d.parcelas.forEach((p,i)=>{if((p.data||'').startsWith(mes)&&!p.paga)divsMes.push({nome:`${d.nome} · parc. ${i+1}/${d.parcelas.length}`,valor:p.valor,tipo:d.tipo});});
+    } else if(d.vencimento&&d.vencimento.startsWith(mes)){
+      divsMes.push({nome:`${d.nome} · ${tipoLabel(d.tipo)}`,valor:dividaSaldo(d),tipo:d.tipo});
+    }
+  });
+  if(divsMes.length){
+    html+='<div class="det-block"><div class="det-sec-title" style="color:var(--danger)">💳 Dívidas / Parcelas</div>';
+    divsMes.forEach(d=>{html+=`<div class="det-row"><span>${d.nome}</span><span style="color:var(--danger)">${fmt(d.valor)}</span></div>`;});
+    html+='</div>';
+  }
   // SALDO
   const sal=ren-dep;
   html+=`<div class="det-total"><span>Saldo do Mês</span><span style="color:${sal>=0?'var(--ok)':'var(--danger)'}">${fmt(sal)}</span></div>`;
