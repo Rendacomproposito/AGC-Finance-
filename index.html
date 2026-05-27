@@ -1164,25 +1164,31 @@ async function validateSession(session){
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
 async function init(){
-  // Mostra login imediatamente para não ficar tela preta
-  showLogin();
-
-  document.getElementById('headerDate').innerHTML=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
   window.addEventListener('online',()=>{ if(currentUser) saveState(); });
 
-  // 1. Verificar magic link na URL (token no hash)
-  const fromLink=await checkMagicLinkToken();
-  if(fromLink){ showApp(); loadState(); return; }
-
-  // 2. Verificar sessão salva no localStorage
-  const saved=loadSession();
-  if(saved){
-    const valid=await validateSession(saved);
-    if(valid){ currentUser=valid; showApp(); loadState(); return; }
-    else clearSession();
+  // 1. Verificar magic link na URL PRIMEIRO — antes de mostrar qualquer tela
+  if(window.location.hash && window.location.hash.includes('access_token')){
+    const fromLink = await checkMagicLinkToken();
+    if(fromLink){
+      document.getElementById('headerDate').innerHTML=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+      showApp();
+      loadState();
+      return;
+    }
   }
 
-  // 3. Sem sessão válida → mantém tela de login
+  // 2. Verificar sessão salva
+  const saved = loadSession();
+  if(saved){
+    const valid = await validateSession(saved);
+    if(valid){ currentUser=valid;
+      document.getElementById('headerDate').innerHTML=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+      showApp(); loadState(); return;
+    } else clearSession();
+  }
+
+  // 3. Sem sessão → tela de login
+  showLogin();
 }
 
 if(document.readyState==='loading'){
