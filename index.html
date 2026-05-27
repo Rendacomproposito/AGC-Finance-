@@ -1102,8 +1102,37 @@ async function verifyOTP(){
   }
 }
 
-// Mantido por compatibilidade mas não usado com OTP
-async function checkMagicLinkToken(){ return false; }
+async function checkMagicLinkToken(){
+  const hash = window.location.hash;
+  if(!hash) return false;
+
+  // Parse todos os parâmetros do hash
+  const str = hash.startsWith('#') ? hash.slice(1) : hash;
+  const params = new URLSearchParams(str);
+
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token') || params.get('token_hash') || '';
+  const type = params.get('type');
+
+  if(!access_token) return false;
+
+  try{
+    const res = await fetch(`${SB_URL}/auth/v1/user`, {
+      headers: sbHeaders(access_token)
+    });
+    if(!res.ok) throw new Error('Token inválido');
+    const user = await res.json();
+    if(!user.id) throw new Error('Usuário não encontrado');
+
+    currentUser = { id: user.id, email: user.email, access_token, refresh_token };
+    saveSession(currentUser);
+    history.replaceState(null, '', window.location.pathname);
+    return true;
+  } catch(e){
+    console.warn('Magic link error:', e);
+    return false;
+  }
+}
 
 // Verifica se sessão ainda está válida
 async function validateSession(session){
