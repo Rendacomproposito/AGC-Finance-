@@ -183,6 +183,12 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 .ob-title{font-family:var(--fh);font-size:20px;font-weight:900;margin-bottom:6px}
 .ob-sub{font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.5}
 .ob-skip{background:transparent;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:var(--fm);padding:0;text-decoration:underline;text-underline-offset:3px}
+/* TOAST */
+#toast-container{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;width:90%;max-width:340px}
+.toast{background:var(--s1);border:1px solid var(--bdr);border-radius:10px;padding:10px 18px;font-family:var(--fh);font-size:13px;font-weight:600;color:var(--txt);box-shadow:0 4px 24px rgba(0,0,0,.6);animation:toastIn .22s ease;text-align:center;width:100%}
+.toast.ok{border-color:var(--ok);color:var(--ok)}.toast.error{border-color:var(--danger);color:var(--danger)}.toast.warn{border-color:var(--warn);color:var(--warn)}.toast.info{border-color:var(--blue);color:var(--blue)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(10px)}}
 /* EMPTY */
 .empty{text-align:center;padding:32px 16px;color:var(--muted);font-size:13px}
 .empty-icon{font-size:28px;margin-bottom:8px}
@@ -519,6 +525,9 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
   </div>
 </div>
 
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
 <script>
 // ── SUPABASE CONFIG ────────────────────────────────────────────────────────────
 // ⚠️  Preencha com suas credenciais do projeto Supabase
@@ -548,7 +557,9 @@ function clearSession(){ localStorage.removeItem('agc-session'); localStorage.re
 let state = {dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
 let currentModal = null, editingId = null;
 let varMesFiltro = mesAtual();
+let varAno = new Date().getFullYear();
 let renMesFiltro = mesAtual();
+let renAno = new Date().getFullYear();
 let previsaoAno = new Date().getFullYear();
 let confirmCb = null;
 
@@ -656,6 +667,20 @@ function saveState(){
   },800);
 }
 
+// ── TOAST ──────────────────────────────────────────────────────────────────────
+function toast(msg, type='ok', duration=2500){
+  const c=document.getElementById('toast-container');
+  if(!c)return;
+  const t=document.createElement('div');
+  t.className='toast '+(type||'ok');
+  t.textContent=msg;
+  c.appendChild(t);
+  setTimeout(()=>{
+    t.style.animation='toastOut .22s ease forwards';
+    setTimeout(()=>{ if(t.parentNode)t.parentNode.removeChild(t); },220);
+  },duration);
+}
+
 // ── UTILS ──────────────────────────────────────────────────────────────────────
 const fmt = v => 'R$\u00a0'+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split('T')[0];
@@ -724,8 +749,14 @@ function calcScore(){
   const ren=rendaDoMes(mes);
   const fix=state.fixas.filter(f=>!f.criado_em||mes>=f.criado_em.slice(0,7)).reduce((s,f)=>s+Number(f.valor||0),0);
   const vr=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
+  // Parcelas do mês corrente — igual ao cálculo de renderDestino
+  let divMes=0;
+  state.dividas.forEach(d=>{
+    if(d.tipo_parcelado&&d.parcelas)
+      d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)divMes+=Number(p.valor||0);});
+  });
   const totalDiv=state.dividas.filter(d=>d.status!=='pago').reduce((s,d)=>s+dividaSaldo(d),0);
-  const totalDesp=fix+vr;
+  const totalDesp=fix+vr+divMes;  // comprometimento real inclui parcelas
   let score=100;
   const tips=[];
   if(ren>0){
@@ -922,8 +953,30 @@ function obNext(){
   }
 }
 
+// ── AUTO STATUS ───────────────────────────────────────────────────────────────
+// Percorre dívidas e parcelas: se venceu e não foi paga → marca atrasado
+// Se foi quitada manualmente (saldo=0 por pagamentos) → marca pago
+function checkAutoStatus(){
+  state.dividas.forEach(d=>{
+    if(d.status==='pago') return;
+    if(d.tipo_parcelado&&d.parcelas){
+      // Parcelas: marca a dívida como atrasada se alguma parcela vencida não foi paga
+      const temAtrasada=d.parcelas.some(p=>!p.paga&&p.data&&diasVencer(p.data)<0);
+      const todasPagas=d.parcelas.every(p=>p.paga);
+      if(todasPagas) d.status='pago';
+      else if(temAtrasada) d.status='atrasado';
+      else if(d.status==='atrasado') d.status='pendente'; // parcela atrasada foi paga manualmente
+    } else {
+      // Dívida simples: vencimento passado → atrasado
+      if(d.vencimento&&diasVencer(d.vencimento)<0&&d.status!=='atrasado') d.status='atrasado';
+      // Saldo zerado por pagamentos → pago
+      if(dividaSaldo(d)<=0&&d.status!=='pago') d.status='pago';
+    }
+  });
+}
+
 // ── RENDER ALL ─────────────────────────────────────────────────────────────
-function renderAll(){renderScore();renderKPIs();renderAlertas();renderProximos();renderDBar();renderDividas();renderFixas();renderVariaveis();renderRenda();renderRecorrentes();renderDestino();renderPrevisao();renderHistorico();}
+function renderAll(){checkAutoStatus();renderScore();renderKPIs();renderAlertas();renderProximos();renderDBar();renderDividas();renderFixas();renderVariaveis();renderRenda();renderRecorrentes();renderDestino();renderPrevisao();renderHistorico();}
 
 // ── KPIs ───────────────────────────────────────────────────────────────────────
 function renderKPIs(){
@@ -948,24 +1001,76 @@ function renderKPIs(){
   se.className='kpi-val '+(saldo>=0?'c-ok':'c-danger');
 }
 
+// ── UTILS DE DATA ─────────────────────────────────────────────────────────────
+// Retorna a próxima data de vencimento de uma fixa dado o dia do mês
+function proximaDataFixa(dia){
+  const agora=new Date();
+  const diaNum=parseInt(dia);
+  const diaAtual=agora.getDate();
+  const ano=agora.getFullYear();
+  const mes=agora.getMonth();
+  // Se o dia ainda não passou neste mês (ou é hoje), usa mês atual; senão, próximo mês
+  const dataAlvo=diaNum>=diaAtual
+    ? new Date(ano,mes,diaNum)
+    : new Date(ano,mes+1,diaNum);
+  return dataAlvo.toISOString().split('T')[0];
+}
+
 // ── ALERTAS ────────────────────────────────────────────────────────────────────
 function renderAlertas(){
   const el=document.getElementById('alert-visao');
-  const urg=state.dividas.filter(d=>diasVencer(d.vencimento)<=5&&d.status!=='pago');
-  if(urg.length)el.innerHTML=`<div class="alert-banner alert-danger">⚠️ ${urg.length} dívida(s) vencem em até 5 dias</div>`;
-  else if(state.dividas.length)el.innerHTML='<div class="alert-banner alert-ok">✓ Nenhum vencimento crítico nos próximos 5 dias</div>';
-  else el.innerHTML='';
+  let urgCount=0;
+  const urgItems=[];
+  // Dívidas: não parceladas usam d.vencimento; parceladas usam próxima parcela não paga
+  state.dividas.forEach(d=>{
+    if(d.status==='pago') return;
+    if(d.tipo_parcelado&&d.parcelas){
+      const prox=d.parcelas.find(p=>!p.paga&&p.data);
+      if(prox&&diasVencer(prox.data)<=5&&diasVencer(prox.data)>=-0){urgCount++;urgItems.push(d.nome);}
+    } else {
+      if(d.vencimento&&diasVencer(d.vencimento)<=5){urgCount++;urgItems.push(d.nome);}
+    }
+  });
+  // Fixas com dia de vencimento nos próximos 5 dias
+  state.fixas.forEach(f=>{
+    if(!f.vencimento) return;
+    const data=proximaDataFixa(f.vencimento);
+    if(diasVencer(data)<=5&&diasVencer(data)>=0){urgCount++;urgItems.push(f.nome);}
+  });
+  const temQualquerCoisa=state.dividas.length||state.fixas.length;
+  if(urgCount>0){
+    el.innerHTML=`<div class="alert-banner alert-danger">⚠️ ${urgCount} vencimento(s) nos próximos 5 dias: ${urgItems.join(', ')}</div>`;
+  } else if(temQualquerCoisa){
+    el.innerHTML='<div class="alert-banner alert-ok">✓ Nenhum vencimento crítico nos próximos 5 dias</div>';
+  } else {
+    el.innerHTML='';
+  }
 }
 
 // ── PRÓXIMOS ───────────────────────────────────────────────────────────────────
 function renderProximos(){
   const el=document.getElementById('proximos');
-  const todos=[
-    ...state.dividas.filter(d=>d.status!=='pago'&&d.vencimento).map(d=>({nome:d.nome,valor:dividaSaldo(d),data:d.vencimento,cor:dotColor(d.tipo)})),
-    ...state.fixas.filter(f=>f.vencimento).map(f=>{const dia=String(f.vencimento).padStart(2,'0');const d=new Date();d.setDate(1);return{nome:f.nome,valor:f.valor,data:d.toISOString().slice(0,7)+'-'+dia,cor:dotColor('fixa')};})
-  ].sort((a,b)=>new Date(a.data)-new Date(b.data)).slice(0,5);
-  if(!todos.length){el.innerHTML='<div class="empty"><div class="empty-icon">📅</div>Nenhum vencimento cadastrado</div>';return;}
-  el.innerHTML=todos.map(t=>{
+  const todos=[];
+  // Dívidas não parceladas com vencimento explícito
+  state.dividas.filter(d=>d.status!=='pago'&&!d.tipo_parcelado&&d.vencimento).forEach(d=>{
+    todos.push({nome:d.nome,valor:dividaSaldo(d),data:d.vencimento,cor:dotColor(d.tipo)});
+  });
+  // Dívidas parceladas: próxima parcela não paga
+  state.dividas.filter(d=>d.status!=='pago'&&d.tipo_parcelado&&d.parcelas).forEach(d=>{
+    const proxIdx=d.parcelas.findIndex(p=>!p.paga&&p.data);
+    if(proxIdx>=0){
+      const p=d.parcelas[proxIdx];
+      todos.push({nome:`${d.nome} · parc. ${proxIdx+1}/${d.parcelas.length}`,valor:p.valor,data:p.data,cor:dotColor(d.tipo)});
+    }
+  });
+  // Fixas: usa próxima data real (com rollover se dia já passou no mês)
+  state.fixas.filter(f=>f.vencimento).forEach(f=>{
+    todos.push({nome:f.nome,valor:f.valor,data:proximaDataFixa(f.vencimento),cor:dotColor('fixa')});
+  });
+  todos.sort((a,b)=>new Date(a.data)-new Date(b.data));
+  const slice=todos.slice(0,5);
+  if(!slice.length){el.innerHTML='<div class="empty"><div class="empty-icon">📅</div>Nenhum vencimento cadastrado</div>';return;}
+  el.innerHTML=slice.map(t=>{
     const dias=diasVencer(t.data);
     const lb=dias<0?Math.abs(dias)+'d atrasado':dias===0?'HOJE':'em '+dias+'d';
     const c=dias<0?'c-danger':dias<=3?'c-warn':'c-ok';
@@ -1002,7 +1107,22 @@ function renderDividas(){
 }
 
 function toggleParcelas(id){const el=document.getElementById('parc-'+id);if(el)el.classList.toggle('open');}
-function toggleParcela(did,idx){const d=state.dividas.find(x=>x.id===did);if(!d||!d.parcelas)return;d.parcelas[idx].paga=!d.parcelas[idx].paga;log('parcela',`Parcela ${idx+1} de "${d.nome}" ${d.parcelas[idx].paga?'paga':'desfeita'}`,d.parcelas[idx].valor);saveState();renderAll();}
+function toggleParcela(did,idx){
+  const d=state.dividas.find(x=>x.id===did);
+  if(!d||!d.parcelas)return;
+  d.parcelas[idx].paga=!d.parcelas[idx].paga;
+  log('parcela',`Parcela ${idx+1} de "${d.nome}" ${d.parcelas[idx].paga?'paga':'desfeita'}`,d.parcelas[idx].valor);
+  // Auto-atualiza status: todas pagas → pago; reverteu → pendente
+  const todasPagas=d.parcelas.every(p=>p.paga);
+  if(todasPagas&&d.status!=='pago'){
+    d.status='pago';
+    toast(`"${d.nome}" quitada! 🎉`,'ok',3500);
+  } else if(!todasPagas&&d.status==='pago'){
+    d.status='pendente';
+    toast('Parcela desmarcada — dívida reaberta','warn');
+  }
+  saveState();renderAll();
+}
 function editarDataParcela(did,idx,val){const d=state.dividas.find(x=>x.id===did);if(!d||!d.parcelas)return;d.parcelas[idx].data=val;saveState();}
 function removerPagamento(did,pid){const d=state.dividas.find(x=>x.id===did);if(!d)return;d.pagamentos=(d.pagamentos||[]).filter(p=>p.id!==pid);log('exclusao','Pagamento removido',0);saveState();renderAll();}
 
@@ -1016,28 +1136,49 @@ function renderFixas(){
 // ── VARIÁVEIS ──────────────────────────────────────────────────────────────────
 function renderVariaveis(){
   const filtroEl=document.getElementById('var-filtro');
-  const ano=new Date().getFullYear();
-  const meses=Array.from({length:12},(_,i)=>`${ano}-${String(i+1).padStart(2,'0')}`);
-  filtroEl.innerHTML=meses.map(m=>`<button class="mes-btn ${m===varMesFiltro?'active':''}" onclick="setVarMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
+  const meses=Array.from({length:12},(_,i)=>`${varAno}-${String(i+1).padStart(2,'0')}`);
+  // Garante que varMesFiltro está no ano exibido
+  if(!varMesFiltro.startsWith(String(varAno))) varMesFiltro=meses[0];
+  const totalAno=state.variaveis.filter(v=>(v.data||'').startsWith(String(varAno))).reduce((s,v)=>s+Number(v.valor||0),0);
+  filtroEl.innerHTML=
+    `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <button class="btn-sm" onclick="setVarAno(varAno-1)">‹ ${varAno-1}</button>
+      <span style="font-family:var(--fh);font-size:13px;font-weight:700;color:var(--accent)">${varAno}<span style="font-size:10px;color:var(--muted);font-weight:400;margin-left:6px">${fmt(totalAno)} no ano</span></span>
+      <button class="btn-sm" onclick="setVarAno(varAno+1)" ${varAno>=new Date().getFullYear()?'style="opacity:.35;pointer-events:none"':''}>›</button>
+    </div>`+
+    meses.map(m=>`<button class="mes-btn ${m===varMesFiltro?'active':''}" onclick="setVarMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
   const el=document.getElementById('lista-var');
   const fil=state.variaveis.filter(v=>(v.data||'').startsWith(varMesFiltro));
   if(!fil.length){el.innerHTML='<div class="empty"><div class="empty-icon">🧾</div>Nenhum gasto neste mês</div>';return;}
-  el.innerHTML=fil.sort((a,b)=>b.data.localeCompare(a.data)).map(v=>`<div class="item"><div class="item-row"><div class="item-dot" style="background:var(--purple)"></div><div class="item-info"><div class="item-name">${v.nome}<span class="tag">${catLabel(v.categoria||'outros').split(' ')[0]} ${(v.categoria||'outros')}</span></div><div class="item-meta">${formatDate(v.data)}</div></div><div class="item-right"><div class="item-val c-purple">${fmt(v.valor)}</div></div></div><div class="item-actions"><button class="btn-sm yellow" onclick="openModal('variavel','${v.id}')">✏️ Editar</button><button class="btn-sm red" onclick="deletar('variaveis','${v.id}','${v.nome}')">🗑</button></div></div>`).join('');
+  const totalMes=fil.reduce((s,v)=>s+Number(v.valor||0),0);
+  el.innerHTML=`<div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bdr)">Total do mês: <span style="color:var(--purple);font-weight:700">${fmt(totalMes)}</span></div>`+
+    fil.sort((a,b)=>b.data.localeCompare(a.data)).map(v=>`<div class="item"><div class="item-row"><div class="item-dot" style="background:var(--purple)"></div><div class="item-info"><div class="item-name">${v.nome}<span class="tag">${catLabel(v.categoria||'outros').split(' ')[0]} ${(v.categoria||'outros')}</span></div><div class="item-meta">${formatDate(v.data)}</div></div><div class="item-right"><div class="item-val c-purple">${fmt(v.valor)}</div></div></div><div class="item-actions"><button class="btn-sm yellow" onclick="openModal('variavel','${v.id}')">✏️ Editar</button><button class="btn-sm red" onclick="deletar('variaveis','${v.id}','${v.nome}')">🗑</button></div></div>`).join('');
 }
 function setVarMes(m){varMesFiltro=m;renderVariaveis();}
+function setVarAno(a){varAno=a;varMesFiltro=`${a}-${String(new Date().getMonth()+1).padStart(2,'0')}`;renderVariaveis();}
 
 // ── RENDA ──────────────────────────────────────────────────────────────────────
 function renderRenda(){
   const filtroEl=document.getElementById('ren-filtro');
-  const ano=new Date().getFullYear();
-  const meses=Array.from({length:12},(_,i)=>`${ano}-${String(i+1).padStart(2,'0')}`);
-  filtroEl.innerHTML=meses.map(m=>`<button class="mes-btn ${m===renMesFiltro?'active':''}" onclick="setRenMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
+  const meses=Array.from({length:12},(_,i)=>`${renAno}-${String(i+1).padStart(2,'0')}`);
+  if(!renMesFiltro.startsWith(String(renAno))) renMesFiltro=meses[0];
+  const totalAno=state.renda.filter(r=>(r.data||'').startsWith(String(renAno))).reduce((s,r)=>s+Number(r.valor||0),0);
+  filtroEl.innerHTML=
+    `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <button class="btn-sm" onclick="setRenAno(renAno-1)">‹ ${renAno-1}</button>
+      <span style="font-family:var(--fh);font-size:13px;font-weight:700;color:var(--ok)">${renAno}<span style="font-size:10px;color:var(--muted);font-weight:400;margin-left:6px">${fmt(totalAno)} no ano</span></span>
+      <button class="btn-sm" onclick="setRenAno(renAno+1)" ${renAno>=new Date().getFullYear()?'style="opacity:.35;pointer-events:none"':''}>›</button>
+    </div>`+
+    meses.map(m=>`<button class="mes-btn ${m===renMesFiltro?'active':''}" onclick="setRenMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
   const el=document.getElementById('lista-ren');
   const fil=state.renda.filter(r=>(r.data||'').startsWith(renMesFiltro));
   if(!fil.length){el.innerHTML='<div class="empty"><div class="empty-icon">💵</div>Nenhuma entrada neste mês</div>';return;}
-  el.innerHTML=fil.sort((a,b)=>b.data.localeCompare(a.data)).map(r=>`<div class="item"><div class="item-row"><div class="item-dot" style="background:var(--ok)"></div><div class="item-info"><div class="item-name">${r.descricao||'Entrada'}</div><div class="item-meta">${formatDate(r.data)}</div></div><div class="item-right"><div class="item-val c-ok">${fmt(r.valor)}</div></div></div><div class="item-actions"><button class="btn-sm yellow" onclick="openModal('renda','${r.id}')">✏️ Editar</button><button class="btn-sm red" onclick="deletar('renda','${r.id}','${r.descricao||'entrada'}')">🗑</button></div></div>`).join('');
+  const totalMes=fil.reduce((s,r)=>s+Number(r.valor||0),0);
+  el.innerHTML=`<div style="font-size:11px;color:var(--muted);font-family:var(--fm);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bdr)">Total do mês: <span style="color:var(--ok);font-weight:700">${fmt(totalMes)}</span></div>`+
+    fil.sort((a,b)=>b.data.localeCompare(a.data)).map(r=>`<div class="item"><div class="item-row"><div class="item-dot" style="background:var(--ok)"></div><div class="item-info"><div class="item-name">${r.descricao||'Entrada'}</div><div class="item-meta">${formatDate(r.data)}</div></div><div class="item-right"><div class="item-val c-ok">${fmt(r.valor)}</div></div></div><div class="item-actions"><button class="btn-sm yellow" onclick="openModal('renda','${r.id}')">✏️ Editar</button><button class="btn-sm red" onclick="deletar('renda','${r.id}','${r.descricao||'entrada'}')">🗑</button></div></div>`).join('');
 }
 function setRenMes(m){renMesFiltro=m;renderRenda();}
+function setRenAno(a){renAno=a;renMesFiltro=`${a}-${String(new Date().getMonth()+1).padStart(2,'0')}`;renderRenda();}
 
 // ── RECORRENTES ────────────────────────────────────────────────────────────────
 function renderRecorrentes(){
@@ -1331,17 +1472,17 @@ function closeModalOutside(e){if(e.target===document.getElementById('modalOverla
 
 function saveModal(){
   if(currentModal==='divida'){
-    const nome=gv('f-nome');if(!nome){alert('Preencha o nome');return;}
+    const nome=gv('f-nome');if(!nome){toast('Preencha o nome','error');return;}
     const isParc=gv('f-parcelado')==='sim';
     let item;
     if(isParc){
       const np=parseInt(gv('f-num-parc')||0),vp=parseFloat(gv('f-val-parc')||0),dp1=gv('f-data-parc1');
-      if(!np||!vp){alert('Preencha nº parcelas e valor');return;}
+      if(!np||!vp){toast('Preencha nº parcelas e valor','error');return;}
       const parcelas=[];
       for(let i=0;i<np;i++){let data='';if(dp1){const d=new Date(dp1+'T12:00:00');d.setMonth(d.getMonth()+i);data=d.toISOString().split('T')[0];}parcelas.push({valor:vp,data,paga:false});}
       item={id:editingId||uid(),nome,tipo:gv('f-tipo'),tipo_parcelado:true,num_parcelas:np,valor_parcela:vp,valor:np*vp,data_parcela1:dp1,parcelas,status:gv('f-status')||'pendente',pagamentos:[]};
     } else {
-      const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Preencha o valor');return;}
+      const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Preencha o valor','error');return;}
       item={id:editingId||uid(),nome,tipo:gv('f-tipo'),tipo_parcelado:false,valor,juros:parseFloat(gv('f-juros')||0),vencimento:gv('f-vencimento'),status:gv('f-status')||'pendente',obs:gv('f-obs'),pagamentos:editingId?(state.dividas.find(d=>d.id===editingId)||{}).pagamentos||[]:[],};
     }
     if(editingId){const idx=state.dividas.findIndex(d=>d.id===editingId);if(idx>=0){state.dividas[idx]=item;log('edicao',`Dívida editada: "${nome}"`,item.valor);}}
@@ -1349,25 +1490,25 @@ function saveModal(){
   }
   else if(currentModal==='fixa'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha nome e valor');return;}
+    if(!nome||!valor){toast('Preencha nome e valor','error');return;}
     if(editingId){const idx=state.fixas.findIndex(x=>x.id===editingId);if(idx>=0){state.fixas[idx]={...state.fixas[idx],nome,valor,vencimento:gv('f-vencimento')};log('edicao',`Despesa fixa editada: "${nome}"`,valor);}}
     else{state.fixas.push({id:uid(),nome,valor,vencimento:gv('f-vencimento'),criado_em:new Date().toISOString()});log('criacao',`Despesa fixa: "${nome}"`,valor);}
   }
   else if(currentModal==='variavel'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha descrição e valor');return;}
+    if(!nome||!valor){toast('Preencha descrição e valor','error');return;}
     if(editingId){const idx=state.variaveis.findIndex(x=>x.id===editingId);if(idx>=0){state.variaveis[idx]={...state.variaveis[idx],nome,valor,data:gv('f-data')||today(),categoria:gv('f-cat')};log('edicao',`Gasto editado: "${nome}"`,valor);}}
     else{state.variaveis.push({id:uid(),nome,valor,data:gv('f-data')||today(),categoria:gv('f-cat')});log('criacao',`Gasto variável: "${nome}"`,valor);}
   }
   else if(currentModal==='renda'){
-    const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Informe o valor');return;}
+    const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Informe o valor','error');return;}
     const desc=gv('f-desc')||'Entrada';
     if(editingId){const idx=state.renda.findIndex(x=>x.id===editingId);if(idx>=0){state.renda[idx]={...state.renda[idx],descricao:desc,valor,data:gv('f-data')||today()};log('edicao',`Receita editada: "${desc}"`,valor);}}
     else{state.renda.push({id:uid(),descricao:desc,valor,data:gv('f-data')||today()});log('criacao',`Receita: "${desc}"`,valor);}
   }
   else if(currentModal==='recorrente'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha nome e valor');return;}
+    if(!nome||!valor){toast('Preencha nome e valor','error');return;}
     const dur=gv('f-dur-tipo'),inicio=gv('f-inicio');
     const item={id:editingId||uid(),nome,tipo:gv('f-tipo-rec'),valor,inicio};
     if(dur==='meses')item.meses=parseInt(gv('f-meses')||0);
@@ -1377,14 +1518,14 @@ function saveModal(){
   }
   else if(currentModal==='meta'){
     const nome=gv('f-nome-meta');const valor=parseFloat(gv('f-valor-meta')||0);
-    if(!nome){alert('Preencha o nome da meta');return;}
-    if(!valor){alert('Defina o valor da meta');return;}
+    if(!nome){toast('Preencha o nome da meta','error');return;}
+    if(!valor){toast('Defina o valor da meta','error');return;}
     const item={id:editingId||uid(),nome,icone:gv('f-icone-meta')||'🎯',valor,prazo:gv('f-prazo-meta'),descricao:gv('f-desc-meta'),cor:gv('f-cor-meta')||'var(--purple)',aportes:editingId?(state.metas.find(m=>m.id===editingId)||{}).aportes||[]:[],criado_em:editingId?(state.metas.find(m=>m.id===editingId)||{}).criado_em||new Date().toISOString():new Date().toISOString()};
     if(editingId){const idx=state.metas.findIndex(x=>x.id===editingId);if(idx>=0){state.metas[idx]=item;log('edicao',`Meta editada: "${nome}"`,valor);}}
     else{state.metas.push(item);log('criacao',`Nova meta: "${nome}"`,valor);}
   }
   else if(currentModal==='pagamento'){
-    const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Informe o valor');return;}
+    const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Informe o valor','error');return;}
     const d=state.dividas.find(x=>x.id===editingId);if(!d)return;
     if(!d.pagamentos)d.pagamentos=[];
     d.pagamentos.push({id:uid(),valor,data:gv('f-data')||today()});
@@ -1392,7 +1533,9 @@ function saveModal(){
     editingId=null;
   }
   const _modal=currentModal;
+  const toastMsgs={divida:'Dívida salva ✓',fixa:'Despesa fixa salva ✓',variavel:'Gasto registrado ✓',renda:'Receita salva ✓',recorrente:'Receita recorrente salva ✓',pagamento:'Pagamento registrado ✓',meta:'Meta salva ✓'};
   saveState();renderAll();closeModal();
+  toast(toastMsgs[_modal]||'Salvo ✓','ok');
   if(_modal==='meta'){setTimeout(()=>{abrirMetas();},100);}
 }
 
@@ -1540,7 +1683,7 @@ function fecharAporte(){document.getElementById('aporte-overlay').style.display=
 function salvarAporte(){
   const valor=parseFloat(document.getElementById('aporte-valor').value||0);
   const data=document.getElementById('aporte-data').value||today();
-  if(!valor||!aporteMetaId){alert('Informe o valor');return;}
+  if(!valor||!aporteMetaId){toast('Informe o valor','error');return;}
   const m=state.metas.find(x=>x.id===aporteMetaId);
   if(!m)return;
   if(!m.aportes)m.aportes=[];
@@ -1550,6 +1693,7 @@ function salvarAporte(){
   fecharAporte();
   renderMetasInteligencia();
   renderListaMetas();
+  toast(`Aporte de ${fmt(valor)} registrado ✓`,'ok');
 }
 
 function removerAporte(metaId,aporteId){
