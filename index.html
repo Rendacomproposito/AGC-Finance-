@@ -162,6 +162,27 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 .hist-meta{font-size:10px;color:var(--muted);margin-top:2px;font-family:var(--fm)}
 .hist-val{font-size:12px;font-weight:700;flex-shrink:0;font-family:var(--fm)}
 
+/* SCORE */
+.score-wrap{background:var(--s1);border:1px solid var(--bdr);border-radius:14px;padding:18px 16px;margin-bottom:20px;display:flex;align-items:center;gap:16px}
+.score-ring{flex-shrink:0;position:relative;width:68px;height:68px}
+.score-ring svg{transform:rotate(-90deg)}
+.score-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--fh);font-size:20px;font-weight:900}
+.score-info{flex:1;min-width:0}
+.score-label{font-family:var(--fh);font-size:15px;font-weight:800;margin-bottom:3px}
+.score-desc{font-size:11px;color:var(--muted);line-height:1.5}
+.score-tips{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.score-tip{font-size:11px;color:var(--muted);display:flex;align-items:flex-start;gap:5px;line-height:1.4}
+/* ONBOARDING */
+.ob-overlay{position:fixed;inset:0;background:rgba(0,0,0,.95);backdrop-filter:blur(10px);z-index:180;display:none;align-items:flex-start;justify-content:center;padding:24px 16px 80px;overflow-y:auto}
+.ob-overlay.open{display:flex}
+.ob-box{background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:28px 24px;width:100%;max-width:420px}
+.ob-steps{display:flex;gap:6px;margin-bottom:24px}
+.ob-step{flex:1;height:3px;border-radius:3px;background:var(--bdr);transition:background .3s}
+.ob-step.done{background:var(--accent)}
+.ob-step.active{background:var(--blue)}
+.ob-title{font-family:var(--fh);font-size:20px;font-weight:900;margin-bottom:6px}
+.ob-sub{font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.5}
+.ob-skip{background:transparent;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:var(--fm);padding:0;text-decoration:underline;text-underline-offset:3px}
 /* EMPTY */
 .empty{text-align:center;padding:32px 16px;color:var(--muted);font-size:13px}
 .empty-icon{font-size:28px;margin-bottom:8px}
@@ -304,6 +325,21 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 
 <!-- VISÃO -->
 <div class="panel active" id="panel-visao">
+  <div class="score-wrap" id="score-wrap">
+    <div class="score-ring">
+      <svg width="68" height="68" viewBox="0 0 68 68">
+        <circle cx="34" cy="34" r="28" fill="none" stroke="#222" stroke-width="6"/>
+        <circle id="score-arc" cx="34" cy="34" r="28" fill="none" stroke="#C8FF00" stroke-width="6"
+          stroke-linecap="round" stroke-dasharray="175.93" stroke-dashoffset="175.93" style="transition:stroke-dashoffset .8s ease,stroke .4s"/>
+      </svg>
+      <div class="score-num" id="score-num" style="color:var(--accent)">—</div>
+    </div>
+    <div class="score-info">
+      <div class="score-label" id="score-label">Saúde Financeira</div>
+      <div class="score-desc" id="score-desc">Calculando...</div>
+      <div class="score-tips" id="score-tips"></div>
+    </div>
+  </div>
   <div class="kpi-grid">
     <div class="kpi"><div class="kpi-lbl">Total Dívidas</div><div class="kpi-val c-danger" id="kpi-div">R$ 0</div><div class="kpi-sub" id="kpi-div-n">0 ativas</div></div>
     <div class="kpi"><div class="kpi-lbl">Fixas / mês</div><div class="kpi-val c-warn" id="kpi-fix">R$ 0</div><div class="kpi-sub" id="kpi-fix-n">0 itens</div></div>
@@ -435,6 +471,22 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
   </div>
 </div>
 
+<!-- ONBOARDING -->
+<div class="ob-overlay" id="ob-overlay">
+  <div class="ob-box">
+    <div class="ob-steps">
+      <div class="ob-step active" id="ob-s1"></div>
+      <div class="ob-step" id="ob-s2"></div>
+      <div class="ob-step" id="ob-s3"></div>
+    </div>
+    <div id="ob-content"></div>
+    <div style="display:flex;gap:10px;margin-top:24px;align-items:center">
+      <button class="ob-skip" onclick="skipOnboarding()">Pular configuração</button>
+      <button class="btn-primary" style="flex:1" id="ob-next-btn" onclick="obNext()">Próximo →</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PRINCIPAL -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
   <div class="modal">
@@ -548,6 +600,7 @@ async function loadState(){
     try{const d=localStorage.getItem(LOCAL_KEY);if(d)state=JSON.parse(d);}catch(le){}
   }
   renderAll();
+  if(shouldShowOnboarding()) setTimeout(startOnboarding,600);
 }
 
 // Salva local imediatamente + debounce para Supabase (upsert por user_id)
@@ -612,7 +665,6 @@ const gv = id => {const e=document.getElementById(id);return e?e.value.trim():''
 const sv = (id,v) => {const e=document.getElementById(id);if(e)e.value=v||'';}
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const MESES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-const MESES_2026 = ['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12'];
 
 function diasVencer(ds){if(!ds)return 999;return Math.ceil((new Date(ds+'T12:00:00')-new Date())/86400000);}
 function dotColor(t){return {cartao:'#FF6B47',emprestimo:'#FF3B3B',pessoa:'#FF9500',fixa:'#3D9EFF',outro:'#BF5AF2'}[t]||'#666';}
@@ -666,7 +718,212 @@ function doConfirm(){document.getElementById('confirmOverlay').classList.remove(
 function cancelConfirm(){document.getElementById('confirmOverlay').classList.remove('show');confirmCb=null;}
 
 // ── RENDER ALL ─────────────────────────────────────────────────────────────────
-function renderAll(){renderKPIs();renderAlertas();renderProximos();renderDBar();renderDividas();renderFixas();renderVariaveis();renderRenda();renderRecorrentes();renderDestino();renderPrevisao();renderHistorico();}
+// ── SCORE DE SAÚDE FINANCEIRA ─────────────────────────────────────────────────
+function calcScore(){
+  const mes=mesAtual();
+  const ren=rendaDoMes(mes);
+  const fix=state.fixas.filter(f=>!f.criado_em||mes>=f.criado_em.slice(0,7)).reduce((s,f)=>s+Number(f.valor||0),0);
+  const vr=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
+  const totalDiv=state.dividas.filter(d=>d.status!=='pago').reduce((s,d)=>s+dividaSaldo(d),0);
+  const totalDesp=fix+vr;
+  let score=100;
+  const tips=[];
+  if(ren>0){
+    const comp=totalDesp/ren;
+    if(comp>0.9){score-=35;tips.push({icon:'🔴',txt:'Mais de 90% da renda comprometida com despesas'});}
+    else if(comp>0.7){score-=20;tips.push({icon:'🟡',txt:'Entre 70–90% da renda comprometida'});}
+    else if(comp>0.5){score-=8;tips.push({icon:'🟡',txt:'Entre 50–70% da renda comprometida'});}
+  } else {
+    score-=20;tips.push({icon:'🔴',txt:'Nenhuma renda cadastrada neste mês'});
+  }
+  const renAnual=ren*12||1;
+  if(totalDiv>renAnual*2){score-=25;tips.push({icon:'🔴',txt:'Dívidas acima de 2x a renda anual'});}
+  else if(totalDiv>renAnual){score-=15;tips.push({icon:'🟡',txt:'Dívidas entre 1–2x a renda anual'});}
+  else if(totalDiv>renAnual*0.5){score-=8;}
+  const atrasadas=state.dividas.filter(d=>d.status==='atrasado').length;
+  if(atrasadas>0){score-=15*Math.min(atrasadas,2);tips.push({icon:'🔴',txt:atrasadas+' dívida(s) em atraso'});}
+  if(state.metas&&state.metas.length>0){score=Math.min(100,score+5);}
+  else{tips.push({icon:'💡',txt:'Cadastre metas para melhorar seu planejamento'});}
+  const temReserva=state.metas&&state.metas.some(m=>m.nome.toLowerCase().includes('reserva')||m.nome.toLowerCase().includes('emergência'));
+  if(!temReserva){tips.push({icon:'💡',txt:'Crie uma meta de reserva de emergência'});}
+  else{score=Math.min(100,score+5);}
+  score=Math.max(0,Math.round(score));
+  return {score,tips:tips.slice(0,3)};
+}
+
+function renderScore(){
+  const wrap=document.getElementById('score-wrap');
+  if(!wrap)return;
+  const temDados=state.renda.length||state.recorrentes.length||state.fixas.length||state.dividas.length;
+  if(!temDados){wrap.style.display='none';return;}
+  wrap.style.display='flex';
+  const {score,tips}=calcScore();
+  const circum=175.93;
+  const offset=circum-(circum*(score/100));
+  const arc=document.getElementById('score-arc');
+  const num=document.getElementById('score-num');
+  const lbl=document.getElementById('score-label');
+  const desc=document.getElementById('score-desc');
+  const tipsEl=document.getElementById('score-tips');
+  let cor,label,subdesc;
+  if(score>=80){cor='var(--ok)';label='Saúde Boa';subdesc='Suas finanças estão equilibradas.';}
+  else if(score>=60){cor='var(--accent)';label='Atenção';subdesc='Há pontos que merecem cuidado.';}
+  else if(score>=40){cor='var(--warn)';label='Alerta';subdesc='Algumas áreas precisam de ajuste.';}
+  else{cor='var(--danger)';label='Crítico';subdesc='Ação imediata recomendada.';}
+  if(arc){arc.style.strokeDashoffset=offset;arc.style.stroke=cor;}
+  if(num){num.textContent=score;num.style.color=cor;}
+  if(lbl){lbl.textContent=label;lbl.style.color=cor;}
+  if(desc)desc.textContent=subdesc;
+  if(tipsEl)tipsEl.innerHTML=tips.map(t=>`<div class="score-tip"><span>${t.icon}</span><span>${t.txt}</span></div>`).join('');
+}
+
+// ── ONBOARDING ────────────────────────────────────────────────────────────────
+let obStep=1;
+const obData={renda:0,fixas:[],temDivida:false};
+
+function shouldShowOnboarding(){
+  return !localStorage.getItem('agc-onboarding-done')&&
+    !state.renda.length&&!state.recorrentes.length&&!state.fixas.length&&!state.dividas.length;
+}
+
+function startOnboarding(){
+  obStep=1;
+  document.getElementById('ob-overlay').classList.add('open');
+  renderObStep();
+}
+
+function skipOnboarding(){
+  document.getElementById('ob-overlay').classList.remove('open');
+  localStorage.setItem('agc-onboarding-done','1');
+}
+
+function renderObStep(){
+  [1,2,3].forEach(i=>{
+    const el=document.getElementById('ob-s'+i);
+    if(!el)return;
+    el.className='ob-step'+(i<obStep?' done':i===obStep?' active':'');
+  });
+  const btn=document.getElementById('ob-next-btn');
+  const ct=document.getElementById('ob-content');
+  if(obStep===1){
+    ct.innerHTML=`
+      <div class="ob-title">Bem-vindo ao AGC Finance 👋</div>
+      <div class="ob-sub">Vamos configurar seu perfil em 3 passos. Você pode editar tudo depois.</div>
+      <div class="fg">
+        <label class="flbl">Qual é a sua renda mensal? (R$)</label>
+        <input class="finp" id="ob-renda" type="number" step="0.01" placeholder="Ex: 3500,00"
+          onkeydown="if(event.key==='Enter')obNext()">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Salário, freelances recorrentes, aluguel recebido...</div>
+      </div>`;
+    if(btn)btn.textContent='Próximo →';
+  } else if(obStep===2){
+    ct.innerHTML=`
+      <div class="ob-title">Despesas fixas 📌</div>
+      <div class="ob-sub">Gastos que se repetem todo mês. Adicione os principais.</div>
+      <div id="ob-fixas-lista" style="margin-bottom:14px"></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+        <input class="finp" id="ob-fixa-nome" placeholder="Ex: Aluguel, Netflix..." style="min-width:0"
+          onkeydown="if(event.key==='Enter')obAddFixa()">
+        <input class="finp" id="ob-fixa-val" type="number" step="0.01" placeholder="R$" style="width:90px"
+          onkeydown="if(event.key==='Enter')obAddFixa()">
+      </div>
+      <button onclick="obAddFixa()" style="margin-top:8px;width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;padding:10px;color:var(--muted);font-family:var(--fm);font-size:12px;cursor:pointer">+ Adicionar despesa fixa</button>`;
+    renderObFixasLista();
+    if(btn)btn.textContent='Próximo →';
+  } else if(obStep===3){
+    ct.innerHTML=`
+      <div class="ob-title">Dívidas 💳</div>
+      <div class="ob-sub">Você tem dívidas ativas no momento?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button id="ob-div-nao" onclick="obSetDivida(false)"
+          style="background:var(--s2);border:2px solid var(--ok);border-radius:10px;padding:16px;cursor:pointer;color:var(--txt);font-family:var(--fh);font-size:13px;font-weight:700">
+          ✓ Não tenho<br><span style="font-size:11px;color:var(--ok);font-weight:400">Tudo quitado</span>
+        </button>
+        <button id="ob-div-sim" onclick="obSetDivida(true)"
+          style="background:var(--s2);border:1px solid var(--bdr);border-radius:10px;padding:16px;cursor:pointer;color:var(--txt);font-family:var(--fh);font-size:13px;font-weight:700">
+          Sim, tenho<br><span style="font-size:11px;color:var(--muted);font-weight:400">Vou cadastrar depois</span>
+        </button>
+      </div>
+      <div style="margin-top:14px;background:var(--s2);border:1px solid var(--bdr);border-radius:10px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">
+        💡 Você pode adicionar dívidas detalhadas depois na aba <strong style="color:var(--txt)">Dívidas</strong>.
+      </div>`;
+    if(btn)btn.textContent='Concluir ✓';
+    obSetDivida(false);
+  }
+}
+
+function obSetDivida(tem){
+  obData.temDivida=tem;
+  const sim=document.getElementById('ob-div-sim');
+  const nao=document.getElementById('ob-div-nao');
+  if(sim&&nao){
+    if(tem){
+      sim.style.border='2px solid var(--warn)';
+      nao.style.border='1px solid var(--bdr)';
+    } else {
+      nao.style.border='2px solid var(--ok)';
+      sim.style.border='1px solid var(--bdr)';
+    }
+  }
+}
+
+function obAddFixa(){
+  const nome=document.getElementById('ob-fixa-nome')?.value.trim();
+  const val=parseFloat(document.getElementById('ob-fixa-val')?.value||0);
+  if(!nome||!val)return;
+  obData.fixas.push({nome,valor:val});
+  document.getElementById('ob-fixa-nome').value='';
+  document.getElementById('ob-fixa-val').value='';
+  document.getElementById('ob-fixa-nome').focus();
+  renderObFixasLista();
+}
+
+function obRemoveFixa(i){
+  obData.fixas.splice(i,1);
+  renderObFixasLista();
+}
+
+function renderObFixasLista(){
+  const el=document.getElementById('ob-fixas-lista');
+  if(!el)return;
+  if(!obData.fixas.length){el.innerHTML='<div style="font-size:12px;color:var(--muted);padding:6px 0">Nenhuma despesa adicionada ainda</div>';return;}
+  el.innerHTML=obData.fixas.map((f,i)=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--s2);border-radius:7px;margin-bottom:6px;border:1px solid var(--bdr)">
+      <span style="font-size:13px;font-family:var(--fh)">${f.nome}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px;font-family:var(--fm);color:var(--warn)">${fmt(f.valor)}</span>
+        <button onclick="obRemoveFixa(${i})" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 4px">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function obNext(){
+  if(obStep===1){
+    obData.renda=parseFloat(document.getElementById('ob-renda')?.value||0);
+    obStep=2;renderObStep();
+  } else if(obStep===2){
+    const nome=document.getElementById('ob-fixa-nome')?.value.trim();
+    const val=parseFloat(document.getElementById('ob-fixa-val')?.value||0);
+    if(nome&&val)obData.fixas.push({nome,valor:val});
+    obStep=3;renderObStep();
+  } else if(obStep===3){
+    if(obData.renda>0){
+      state.recorrentes.push({id:uid(),nome:'Renda Mensal',tipo:'salario',
+        valor:obData.renda,inicio:mesAtual(),criado_em:new Date().toISOString()});
+    }
+    obData.fixas.forEach(f=>{
+      state.fixas.push({id:uid(),nome:f.nome,valor:f.valor,criado_em:new Date().toISOString()});
+    });
+    log('criacao','Configuração inicial concluída',0);
+    saveState();renderAll();
+    document.getElementById('ob-overlay').classList.remove('open');
+    localStorage.setItem('agc-onboarding-done','1');
+    if(obData.temDivida){setTimeout(()=>{switchTab('dividas');openModal('divida');},400);}
+  }
+}
+
+// ── RENDER ALL ─────────────────────────────────────────────────────────────
+function renderAll(){renderScore();renderKPIs();renderAlertas();renderProximos();renderDBar();renderDividas();renderFixas();renderVariaveis();renderRenda();renderRecorrentes();renderDestino();renderPrevisao();renderHistorico();}
 
 // ── KPIs ───────────────────────────────────────────────────────────────────────
 function renderKPIs(){
@@ -681,7 +938,8 @@ function renderKPIs(){
   document.getElementById('kpi-div').textContent=fmt(totalDiv);
   document.getElementById('kpi-div-n').textContent=state.dividas.filter(d=>d.status!=='pago').length+' ativa(s)';
   document.getElementById('kpi-fix').textContent=fmt(totalFix);
-  document.getElementById('kpi-fix-n').textContent=state.fixas.length+' item(ns)';
+  const fixAtivas=state.fixas.filter(f=>!f.criado_em || mesAtual() >= f.criado_em.slice(0,7)).length;
+  document.getElementById('kpi-fix-n').textContent=fixAtivas+' item(ns)';
   document.getElementById('kpi-var').textContent=fmt(totalVar);
   document.getElementById('kpi-var-n').textContent=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).length+' registros';
   document.getElementById('kpi-ren').textContent=fmt(totalRen);
@@ -795,14 +1053,23 @@ function renderRecorrentes(){
 function renderDestino(){
   const mes=mesAtual();
   const ren=rendaDoMes(mes)||1;
-  const fix=state.fixas.reduce((s,f)=>s+Number(f.valor||0),0);
+  // Fixas: respeita criado_em igual a despesasDoMes
+  const fix=state.fixas
+    .filter(f=>!f.criado_em || mes >= f.criado_em.slice(0,7))
+    .reduce((s,f)=>s+Number(f.valor||0),0);
   const vr=state.variaveis.filter(v=>(v.data||'').startsWith(mes)).reduce((s,v)=>s+Number(v.valor||0),0);
-  const divs=state.dividas.filter(d=>d.status!=='pago').reduce((s,d)=>s+dividaSaldo(d),0);
-  const livre=Math.max(0,ren-fix-vr);
-  const pct=v=>Math.round(v/ren*100);
+  // Dívidas: apenas o que SAIRÁ do bolso neste mês (pagamentos manuais + parcelas não pagas)
+  let divMes=0;
+  state.dividas.forEach(d=>{
+    if(d.tipo_parcelado&&d.parcelas){
+      d.parcelas.forEach(p=>{if((p.data||'').startsWith(mes)&&!p.paga)divMes+=Number(p.valor||0);});
+    }
+  });
+  const livre=Math.max(0,ren-fix-vr-divMes);
+  const pct=v=>Math.min(999,Math.round(v/ren*100));
   const el=document.getElementById('destino');
   const items=[
-    {nome:'Dívidas',val:divs,cor:'var(--danger)'},
+    {nome:'Parcelas',val:divMes,cor:'var(--danger)'},
     {nome:'Fixas',val:fix,cor:'var(--warn)'},
     {nome:'Variáveis',val:vr,cor:'var(--purple)'},
     {nome:'Livre',val:livre,cor:'var(--ok)'},
