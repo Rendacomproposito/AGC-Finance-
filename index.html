@@ -605,8 +605,7 @@ async function loadState(){
     if(rows&&rows.length&&rows[0].data&&Object.keys(rows[0].data).length){
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[],...rows[0].data};
       localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-      try{sessionStorage.setItem(LOCAL_KEY,JSON.stringify(state));}catch(e){}
-    } else {
+        } else {
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
       localStorage.removeItem(LOCAL_KEY);
     }
@@ -614,11 +613,7 @@ async function loadState(){
   }catch(e){
     setSyncStatus(navigator.onLine?'error':'offline');
     console.warn('Supabase load error, usando cache local:',e);
-    try{
-      const ds=sessionStorage.getItem(LOCAL_KEY);
-      if(ds){state=JSON.parse(ds);}
-      else{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=JSON.parse(dl);}
-    }catch(le){}
+    try{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=JSON.parse(dl);}catch(le){}
   }
   renderAll();
   if(shouldShowOnboarding()) setTimeout(startOnboarding,600);
@@ -627,7 +622,6 @@ async function loadState(){
 // Salva local imediatamente + debounce para Supabase (upsert por user_id)
 function saveState(){
   localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-  try{sessionStorage.setItem(LOCAL_KEY,JSON.stringify(state));}catch(e){}
   if(!currentUser){setSyncStatus('offline');return;}
   setSyncStatus('syncing');
   clearTimeout(syncTimeout);
@@ -636,30 +630,42 @@ function saveState(){
       const payload={user_id:currentUser.id,data:state,updated_at:new Date().toISOString()};
       const headers=sbHeaders(currentUser.access_token);
 
-      // UPSERT atômico — INSERT se não existe, UPDATE se existe (requer UNIQUE em user_id)
-      const upsert=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
-        method:'POST',
-        headers:{...headers,'Prefer':'resolution=merge-duplicates,return=minimal'},
+      // PATCH primeiro — atualiza se registro já existe
+      const patch=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
+        method:'PATCH',
+        headers:{...headers,'Prefer':'return=minimal'},
         body:JSON.stringify(payload)
       });
 
-      if(upsert.status===401){
+      if(patch.status===401){
         const renewed=await validateSession(currentUser);
         if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
         throw new Error('Token inválido');
       }
 
-      if(!upsert.ok){
-        const t=await upsert.text();
-        throw new Error('UPSERT '+upsert.status+': '+t.substring(0,120));
+      // Content-Range: */0 significa que nenhuma linha foi atualizada (registro não existe ainda)
+      const range=patch.headers.get('Content-Range')||'';
+      const nonePatched=patch.ok&&(range.includes('*/0')||range==='');
+
+      if(nonePatched||patch.status===404){
+        // Primeira vez — INSERT
+        const post=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
+          method:'POST',
+          headers:{...headers,'Prefer':'return=minimal'},
+          body:JSON.stringify(payload)
+        });
+        if(!post.ok){
+          const t=await post.text();
+          throw new Error('INSERT '+post.status+': '+t.substring(0,120));
+        }
+      } else if(!patch.ok){
+        const t=await patch.text();
+        throw new Error('PATCH '+patch.status+': '+t.substring(0,120));
       }
 
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
-      // Mostrar código de erro no status para facilitar debug
-      const el=document.getElementById('sync-status');
-      if(el) el.title=e.message;
       console.warn('Supabase save error:',e.message);
     }
   },800);
@@ -1998,9 +2004,9 @@ async function init(){
     if(document.visibilityState==='hidden'&&currentUser&&state){
       clearTimeout(syncTimeout);
       const payload=JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()});
-      fetch(`${SB_URL}/rest/v1/agc_finance`,{
-        method:'POST',
-        headers:{...sbHeaders(currentUser.access_token),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
+        method:'PATCH',
+        headers:{...sbHeaders(currentUser.access_token),'Prefer':'return=minimal'},
         body:payload,
         keepalive:true
       }).catch(()=>{});
