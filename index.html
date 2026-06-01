@@ -609,7 +609,6 @@ async function loadState(){
     } else {
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
       localStorage.removeItem(LOCAL_KEY);
-      try{sessionStorage.removeItem(LOCAL_KEY);}catch(e){}
     }
     setSyncStatus('ok');
   }catch(e){
@@ -637,9 +636,7 @@ function saveState(){
       const payload={user_id:currentUser.id,data:state,updated_at:new Date().toISOString()};
       const headers=sbHeaders(currentUser.access_token);
 
-      // UPSERT atômico — elimina a lógica PATCH/INSERT frágil
-      // "resolution=merge-duplicates" faz INSERT se não existe, UPDATE se existe
-      // Requer coluna user_id com UNIQUE constraint na tabela agc_finance
+      // UPSERT atômico — INSERT se não existe, UPDATE se existe (requer UNIQUE em user_id)
       const upsert=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
         method:'POST',
         headers:{...headers,'Prefer':'resolution=merge-duplicates,return=minimal'},
@@ -1191,7 +1188,7 @@ function renderVariaveis(){
   const totalAno=state.variaveis.filter(v=>(v.data||'').startsWith(String(varAno))).reduce((s,v)=>s+Number(v.valor||0),0);
   const anoAtual=new Date().getFullYear();
   if(navEl) navEl.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 12px"><button class="btn-sm" onclick="setVarAno(varAno-1)" style="padding:4px 10px">‹ '+(varAno-1)+'</button><div style="text-align:center"><div style="font-family:var(--fh);font-size:14px;font-weight:800;color:var(--accent)">'+varAno+'</div><div style="font-size:10px;color:var(--muted);font-family:var(--fm)">'+fmt(totalAno)+' no ano</div></div><button class="btn-sm" onclick="setVarAno(varAno+1)" style="padding:4px 10px;'+(varAno>=anoAtual?'opacity:.3;pointer-events:none':'')+'">› '+(varAno+1)+'</button></div>';
-  filtroEl.innerHTML=meses.map(m=>'<button class="mes-btn '+(m===varMesFiltro?'active':'')+'" onclick="setVarMes("+m+")">'+MESES[parseInt(m.split('-')[1])-1]+'</button>').join('');
+  filtroEl.innerHTML=meses.map(m=>`<button class="mes-btn ${m===varMesFiltro?'active':''}" onclick="setVarMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
   const el=document.getElementById('lista-var');
   const fil=state.variaveis.filter(v=>(v.data||'').startsWith(varMesFiltro));
   if(!fil.length){el.innerHTML='<div class="empty"><div class="empty-icon">🧾</div>Nenhum gasto neste mês</div>';return;}
@@ -1211,7 +1208,7 @@ function renderRenda(){
   const totalAno=state.renda.filter(r=>(r.data||'').startsWith(String(renAno))).reduce((s,r)=>s+Number(r.valor||0),0);
   const anoAtual=new Date().getFullYear();
   if(navEl) navEl.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 12px"><button class="btn-sm" onclick="setRenAno(renAno-1)" style="padding:4px 10px">‹ '+(renAno-1)+'</button><div style="text-align:center"><div style="font-family:var(--fh);font-size:14px;font-weight:800;color:var(--ok)">'+renAno+'</div><div style="font-size:10px;color:var(--muted);font-family:var(--fm)">'+fmt(totalAno)+' no ano</div></div><button class="btn-sm" onclick="setRenAno(renAno+1)" style="padding:4px 10px;'+(renAno>=anoAtual?'opacity:.3;pointer-events:none':'')+'">› '+(renAno+1)+'</button></div>';
-  filtroEl.innerHTML=meses.map(m=>'<button class="mes-btn '+(m===renMesFiltro?'active':'')+'" onclick="setRenMes("+m+")">'+MESES[parseInt(m.split('-')[1])-1]+'</button>').join('');
+  filtroEl.innerHTML=meses.map(m=>`<button class="mes-btn ${m===renMesFiltro?'active':''}" onclick="setRenMes('${m}')">${MESES[parseInt(m.split('-')[1])-1]}</button>`).join('');
   const el=document.getElementById('lista-ren');
   const fil=state.renda.filter(r=>(r.data||'').startsWith(renMesFiltro));
   if(!fil.length){el.innerHTML='<div class="empty"><div class="empty-icon">💵</div>Nenhuma entrada neste mês</div>';return;}
@@ -1339,14 +1336,14 @@ function renderPrevisao(){
     acum+=sal;
     const isAtual=m===mes,isCritico=sal<0,isPassado=m<mes;
     const classes=[isAtual?'atual':'',isCritico?'critico':'',isPassado?'passado':''].filter(Boolean).join(' ');
-    return '<div class="cal-mes '+classes+'" onclick="abrirDetalhe("+m+")"><div class="cal-mes-nome">'+MESES_FULL[i]+'</div><div class="cal-mes-row"><span>Renda</span><span style="color:var(--ok)">'+fmt(ren)+'</span></div><div class="cal-mes-row"><span>Despesas</span><span style="color:var(--danger)">'+fmt(dep)+'</span></div><div class="cal-saldo"><span>Saldo</span><span style="color:'+(sal>=0?'var(--ok)':'var(--danger)')+'">'+fmt(sal)+'</span></div><div style="font-size:9px;color:'+(acum>=0?'var(--muted)':'var(--danger)')+';margin-top:5px;font-family:var(--fm);text-align:right">acum. '+fmt(acum)+'</div></div>';
+    return `<div class="cal-mes ${classes}" onclick="abrirDetalhe('${m}')"><div class="cal-mes-nome">${MESES_FULL[i]}</div><div class="cal-mes-row"><span>Renda</span><span style="color:var(--ok)">${fmt(ren)}</span></div><div class="cal-mes-row"><span>Despesas</span><span style="color:var(--danger)">${fmt(dep)}</span></div><div class="cal-saldo"><span>Saldo</span><span style="color:${sal>=0?'var(--ok)':'var(--danger)'}">${fmt(sal)}</span></div><div style="font-size:9px;color:${acum>=0?'var(--muted)':'var(--danger)'};margin-top:5px;font-family:var(--fm);text-align:right">acum. ${fmt(acum)}</div></div>`;
   }).join('');
   renderChart(mesesAno,saldos);
   renderPrevisaoInsights(mesesAno,saldos);
 }
 
 
-function renderChart(mesesAno){
+function renderChart(mesesAno,saldos){
   const svg=document.getElementById('fluxo-svg');
   if(!svg)return;
   if(!mesesAno)mesesAno=Array.from({length:12},(_,i)=>`${previsaoAno}-${String(i+1).padStart(2,'0')}`);
@@ -1443,7 +1440,8 @@ function renderHistorico(){
     const d=new Date(h.data);
     const ts=d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     const cor=h.tipo==='exclusao'?'c-danger':h.tipo==='pagamento'||h.tipo==='parcela'?'c-ok':'c-accent';
-    return `<div class="hist-item"><div class="hist-icon">${tipoIconMap[h.tipo]||'📌'}</div><div class="hist-info"><div class="hist-desc">${h.descricao}</div><div class="hist-meta">${ts}</div></div>${h.valor?`<div class="hist-val ${cor}">${fmt(h.valor)}</div>`:''}</div>`;
+    const valHtml=h.valor?'<div class="hist-val '+cor+'">'+fmt(h.valor)+'</div>':'';
+    return `<div class="hist-item"><div class="hist-icon">${tipoIconMap[h.tipo]||'📌'}</div><div class="hist-info"><div class="hist-desc">${h.descricao}</div><div class="hist-meta">${ts}</div></div>${valHtml}</div>`;
   }).join('');
 }
 function limparHistorico(){confirmar('Apagar todo o histórico de ações?',()=>{state.historico=[];saveState();renderHistorico();});}
@@ -1638,6 +1636,9 @@ function saveModal(){
     editingId=null;
   }
   const _modal=currentModal;
+  // Resetar filtros para o mês atual ao salvar — garante que o item aparece imediatamente
+  if(_modal==='variavel'){varMesFiltro=mesAtual();varAno=new Date().getFullYear();}
+  if(_modal==='renda'){renMesFiltro=mesAtual();renAno=new Date().getFullYear();}
   saveState();renderAll();closeModal();
   if(_modal==='meta'){setTimeout(()=>{abrirMetas();},100);}
 }
@@ -1928,8 +1929,7 @@ async function checkMagicLinkToken(){
 
   if(!access_token) return false;
 
-  // Limpar hash da URL ANTES do fetch — no Android o hash persiste após reload
-  // e causaria loop de token expirado na próxima abertura
+  // Limpa hash ANTES do fetch — Android mantém hash após reload causando loop
   history.replaceState(null, '', window.location.pathname);
 
   try{
@@ -1980,12 +1980,9 @@ async function validateSession(session){
 // ── INIT ───────────────────────────────────────────────────────────────────────
 async function init(){
   window.addEventListener('online',()=>{ if(currentUser) saveState(); });
-
-  // Garante sync antes de fechar o app (crítico no Android — debounce de 800ms pode não disparar)
   window.addEventListener('beforeunload',()=>{
     if(currentUser&&state){
       const payload=JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()});
-      // sendBeacon é enviado mesmo durante fechamento da página
       if(navigator.sendBeacon){
         navigator.sendBeacon(`${SB_URL}/rest/v1/agc_finance`,new Blob([payload],{type:'application/json'}));
       }
@@ -2014,7 +2011,7 @@ async function init(){
       await loadState();
       return;
     } else {
-      // Sessão de auth expirada — remove APENAS o token, preserva cache de dados
+      // Sessão expirada — preserva dados locais, remove só o token
       localStorage.removeItem('agc-session');
     }
   }
