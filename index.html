@@ -605,7 +605,7 @@ async function loadState(){
     if(rows&&rows.length&&rows[0].data&&Object.keys(rows[0].data).length){
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[],...rows[0].data};
       localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-        } else {
+    } else {
       state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
       localStorage.removeItem(LOCAL_KEY);
     }
@@ -629,40 +629,30 @@ function saveState(){
     try{
       const payload={user_id:currentUser.id,data:state,updated_at:new Date().toISOString()};
       const headers=sbHeaders(currentUser.access_token);
-
-      // PATCH primeiro — atualiza se registro já existe
+      // PATCH primeiro — atualiza registro existente
       const patch=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
         method:'PATCH',
         headers:{...headers,'Prefer':'return=minimal'},
         body:JSON.stringify(payload)
       });
-
       if(patch.status===401){
         const renewed=await validateSession(currentUser);
         if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
         throw new Error('Token inválido');
       }
-
-      // Content-Range: */0 significa que nenhuma linha foi atualizada (registro não existe ainda)
+      // Content-Range: */0 = nenhuma linha afetada = registro não existe ainda → INSERT
       const range=patch.headers.get('Content-Range')||'';
       const nonePatched=patch.ok&&(range.includes('*/0')||range==='');
-
       if(nonePatched||patch.status===404){
-        // Primeira vez — INSERT
         const post=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
           method:'POST',
           headers:{...headers,'Prefer':'return=minimal'},
           body:JSON.stringify(payload)
         });
-        if(!post.ok){
-          const t=await post.text();
-          throw new Error('INSERT '+post.status+': '+t.substring(0,120));
-        }
+        if(!post.ok){const t=await post.text();throw new Error('INSERT '+post.status+': '+t.substring(0,120));}
       } else if(!patch.ok){
-        const t=await patch.text();
-        throw new Error('PATCH '+patch.status+': '+t.substring(0,120));
+        const t=await patch.text();throw new Error('PATCH '+patch.status+': '+t.substring(0,120));
       }
-
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
@@ -670,6 +660,7 @@ function saveState(){
     }
   },800);
 }
+
 
 // ── TOAST ──────────────────────────────────────────────────────────────────────
 function toast(msg, type='ok', duration=2500){
