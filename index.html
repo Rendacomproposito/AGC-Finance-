@@ -651,13 +651,16 @@ function saveState(){
 
       if(!upsert.ok){
         const t=await upsert.text();
-        throw new Error('UPSERT http '+upsert.status+' '+t);
+        throw new Error('UPSERT '+upsert.status+': '+t.substring(0,120));
       }
 
       setSyncStatus('ok');
     }catch(e){
       setSyncStatus(navigator.onLine?'error':'offline');
-      console.warn('Supabase save error:',e);
+      // Mostrar código de erro no status para facilitar debug
+      const el=document.getElementById('sync-status');
+      if(el) el.title=e.message;
+      console.warn('Supabase save error:',e.message);
     }
   },800);
 }
@@ -1435,7 +1438,7 @@ function closeDetalhe(){document.getElementById('detOverlay').classList.remove('
 // ── HISTÓRICO ──────────────────────────────────────────────────────────────────
 function renderHistorico(){
   const el=document.getElementById('lista-hist');
-  if(!state.historico.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>Nenhuma ação registrada</div>';return;}
+  if(!state.historico||!state.historico.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>Nenhuma ação registrada</div>';return;}
   el.innerHTML=state.historico.map(h=>{
     const d=new Date(h.data);
     const ts=d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -1570,22 +1573,32 @@ function toggleDurFields(){
   document.getElementById('campo-meses').style.display=v==='meses'?'':'none';
   document.getElementById('campo-fim').style.display=v==='ate'?'':'none';
 }
-function closeModal(){document.getElementById('modalOverlay').classList.remove('open');editingId=null;}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('open');
+  editingId=null;
+  currentModal=null;
+  // Reabilitar botão salvar
+  const btn=document.querySelector('#modalOverlay .btn-primary');
+  if(btn){btn.disabled=false;btn.style.opacity='1';btn.textContent='Salvar';}
+}
 function closeModalOutside(e){if(e.target===document.getElementById('modalOverlay'))closeModal();}
 
 function saveModal(){
+  // Proteção double-submit
+  const _btn=document.querySelector('#modalOverlay .btn-primary');
+  if(_btn){_btn.disabled=true;_btn.style.opacity='.5';_btn.textContent='Salvando...';}
   if(currentModal==='divida'){
-    const nome=gv('f-nome');if(!nome){alert('Preencha o nome');return;}
+    const nome=gv('f-nome');if(!nome){toast('Preencha o nome','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     const isParc=gv('f-parcelado')==='sim';
     let item;
     if(isParc){
       const np=parseInt(gv('f-num-parc')||0),vp=parseFloat(gv('f-val-parc')||0),dp1=gv('f-data-parc1');
-      if(!np||!vp){alert('Preencha nº parcelas e valor');return;}
+      if(!np||!vp){toast('Preencha nº parcelas e valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
       const parcelas=[];
       for(let i=0;i<np;i++){let data='';if(dp1){const d=new Date(dp1+'T12:00:00');d.setMonth(d.getMonth()+i);data=d.toISOString().split('T')[0];}parcelas.push({valor:vp,data,paga:false});}
       item={id:editingId||uid(),nome,tipo:gv('f-tipo'),tipo_parcelado:true,num_parcelas:np,valor_parcela:vp,valor:np*vp,data_parcela1:dp1,parcelas,status:gv('f-status')||'pendente',pagamentos:[]};
     } else {
-      const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Preencha o valor');return;}
+      const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Preencha o valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
       item={id:editingId||uid(),nome,tipo:gv('f-tipo'),tipo_parcelado:false,valor,juros:parseFloat(gv('f-juros')||0),vencimento:gv('f-vencimento'),status:gv('f-status')||'pendente',obs:gv('f-obs'),pagamentos:editingId?(state.dividas.find(d=>d.id===editingId)||{}).pagamentos||[]:[],};
     }
     if(editingId){const idx=state.dividas.findIndex(d=>d.id===editingId);if(idx>=0){state.dividas[idx]=item;log('edicao',`Dívida editada: "${nome}"`,item.valor);}}
@@ -1593,25 +1606,25 @@ function saveModal(){
   }
   else if(currentModal==='fixa'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha nome e valor');return;}
+    if(!nome||!valor){toast('Preencha nome e valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     if(editingId){const idx=state.fixas.findIndex(x=>x.id===editingId);if(idx>=0){state.fixas[idx]={...state.fixas[idx],nome,valor,vencimento:gv('f-vencimento')};log('edicao',`Despesa fixa editada: "${nome}"`,valor);}}
     else{state.fixas.push({id:uid(),nome,valor,vencimento:gv('f-vencimento'),criado_em:new Date().toISOString()});log('criacao',`Despesa fixa: "${nome}"`,valor);}
   }
   else if(currentModal==='variavel'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha descrição e valor');return;}
+    if(!nome||!valor){toast('Preencha descrição e valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     if(editingId){const idx=state.variaveis.findIndex(x=>x.id===editingId);if(idx>=0){state.variaveis[idx]={...state.variaveis[idx],nome,valor,data:gv('f-data')||today(),categoria:gv('f-cat')};log('edicao',`Gasto editado: "${nome}"`,valor);}}
     else{state.variaveis.push({id:uid(),nome,valor,data:gv('f-data')||today(),categoria:gv('f-cat')});log('criacao',`Gasto variável: "${nome}"`,valor);}
   }
   else if(currentModal==='renda'){
-    const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Informe o valor');return;}
+    const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Informe o valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     const desc=gv('f-desc')||'Entrada';
     if(editingId){const idx=state.renda.findIndex(x=>x.id===editingId);if(idx>=0){state.renda[idx]={...state.renda[idx],descricao:desc,valor,data:gv('f-data')||today()};log('edicao',`Receita editada: "${desc}"`,valor);}}
     else{state.renda.push({id:uid(),descricao:desc,valor,data:gv('f-data')||today()});log('criacao',`Receita: "${desc}"`,valor);}
   }
   else if(currentModal==='recorrente'){
     const nome=gv('f-nome'),valor=parseFloat(gv('f-valor')||0);
-    if(!nome||!valor){alert('Preencha nome e valor');return;}
+    if(!nome||!valor){toast('Preencha nome e valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     const dur=gv('f-dur-tipo'),inicio=gv('f-inicio');
     const item={id:editingId||uid(),nome,tipo:gv('f-tipo-rec'),valor,inicio};
     if(dur==='meses')item.meses=parseInt(gv('f-meses')||0);
@@ -1621,14 +1634,14 @@ function saveModal(){
   }
   else if(currentModal==='meta'){
     const nome=gv('f-nome-meta');const valor=parseFloat(gv('f-valor-meta')||0);
-    if(!nome){alert('Preencha o nome da meta');return;}
-    if(!valor){alert('Defina o valor da meta');return;}
+    if(!nome){toast('Preencha o nome da meta','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
+    if(!valor){toast('Defina o valor da meta','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     const item={id:editingId||uid(),nome,icone:gv('f-icone-meta')||'🎯',valor,prazo:gv('f-prazo-meta'),descricao:gv('f-desc-meta'),cor:gv('f-cor-meta')||'var(--purple)',aportes:editingId?(state.metas.find(m=>m.id===editingId)||{}).aportes||[]:[],criado_em:editingId?(state.metas.find(m=>m.id===editingId)||{}).criado_em||new Date().toISOString():new Date().toISOString()};
     if(editingId){const idx=state.metas.findIndex(x=>x.id===editingId);if(idx>=0){state.metas[idx]=item;log('edicao',`Meta editada: "${nome}"`,valor);}}
     else{state.metas.push(item);log('criacao',`Nova meta: "${nome}"`,valor);}
   }
   else if(currentModal==='pagamento'){
-    const valor=parseFloat(gv('f-valor')||0);if(!valor){alert('Informe o valor');return;}
+    const valor=parseFloat(gv('f-valor')||0);if(!valor){toast('Informe o valor','error');const b=document.querySelector('#modalOverlay .btn-primary');if(b){b.disabled=false;b.style.opacity='1';b.textContent='Salvar';}return;}
     const d=state.dividas.find(x=>x.id===editingId);if(!d)return;
     if(!d.pagamentos)d.pagamentos=[];
     d.pagamentos.push({id:uid(),valor,data:gv('f-data')||today()});
@@ -1787,7 +1800,7 @@ function fecharAporte(){document.getElementById('aporte-overlay').style.display=
 function salvarAporte(){
   const valor=parseFloat(document.getElementById('aporte-valor').value||0);
   const data=document.getElementById('aporte-data').value||today();
-  if(!valor||!aporteMetaId){alert('Informe o valor');return;}
+  if(!valor||!aporteMetaId){toast('Informe o valor','error');return;}
   const m=state.metas.find(x=>x.id===aporteMetaId);
   if(!m)return;
   if(!m.aportes)m.aportes=[];
@@ -1980,12 +1993,17 @@ async function validateSession(session){
 // ── INIT ───────────────────────────────────────────────────────────────────────
 async function init(){
   window.addEventListener('online',()=>{ if(currentUser) saveState(); });
-  window.addEventListener('beforeunload',()=>{
-    if(currentUser&&state){
+  // Sync final ao fechar — usa fetch com keepalive (suporta headers auth, ao contrário de sendBeacon)
+  window.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden'&&currentUser&&state){
+      clearTimeout(syncTimeout);
       const payload=JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()});
-      if(navigator.sendBeacon){
-        navigator.sendBeacon(`${SB_URL}/rest/v1/agc_finance`,new Blob([payload],{type:'application/json'}));
-      }
+      fetch(`${SB_URL}/rest/v1/agc_finance`,{
+        method:'POST',
+        headers:{...sbHeaders(currentUser.access_token),'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:payload,
+        keepalive:true
+      }).catch(()=>{});
     }
   });
 
