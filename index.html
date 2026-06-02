@@ -536,20 +536,24 @@ body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100v
 
 <script>
 // ── SUPABASE CONFIG ────────────────────────────────────────────────────────────
-// ⚠️  Preencha com suas credenciais do projeto Supabase
+// SEGURANÇA: A anon key pode ficar no client — é pública por design do Supabase.
+// OBRIGATÓRIO: Repositório GitHub DEVE ser PRIVADO.
+// OBRIGATÓRIO: RLS ativo na tabela agc_finance (veja agc_finance_setup_v4.sql).
 const SB_URL = 'https://afgrwivuuurgbihtfezf.supabase.co';
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmZ3J3aXZ1dXVyZ2JpaHRmZXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MjQ3NjYsImV4cCI6MjA5NTQwMDc2Nn0.-fiyen6bldcrLZDEQ3vJdybNCscQQIQC9smmtfdlhto';
-const LOCAL_KEY = 'agc-finance-v1';
+const LOCAL_KEY       = 'agc-finance-v1';
+const PENDING_SYNC_KEY = 'agc-finance-pending-sync'; // FIX #5: fila de sync offline
 
 // ── AUTH STATE ─────────────────────────────────────────────────────────────────
-let currentUser = null;   // { id, email, access_token }
-let syncTimeout = null;
+let currentUser  = null;   // { id, email, access_token, refresh_token }
+let syncTimeout  = null;
+let _otpEmail    = null;   // FIX: fora do window global
 
-// Cabeçalhos base (sem token — token é injetado após login)
+// Cabeçalhos base para PostgREST
 function sbHeaders(token){
   return {
-    'Content-Type':'application/json',
-    'apikey': SB_ANON_KEY,
+    'Content-Type' : 'application/json',
+    'apikey'       : SB_ANON_KEY,
     'Authorization': 'Bearer ' + (token || SB_ANON_KEY)
   };
 }
@@ -557,110 +561,52 @@ function sbHeaders(token){
 // ── PERSIST SESSION ────────────────────────────────────────────────────────────
 function saveSession(user){ localStorage.setItem('agc-session', JSON.stringify(user)); }
 function loadSession(){ try{ return JSON.parse(localStorage.getItem('agc-session')); }catch(e){ return null; } }
-function clearSession(){ localStorage.removeItem('agc-session'); localStorage.removeItem(LOCAL_KEY); }
+// FIX #9: clearSession NÃO apaga dados locais — só remove o token de autenticação.
+// Dados financeiros sobrevivem ao logout para funcionar como fallback offline.
+function clearSession(){ localStorage.removeItem('agc-session'); }
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
-let state = {dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
-let currentModal = null, editingId = null;
-let varMesFiltro = mesAtual();
-let renMesFiltro = mesAtual();
-let renAno = new Date().getFullYear();
-let previsaoAno = new Date().getFullYear();
-let confirmCb = null;
+// FIX #15: normalizeState garante que todos os arrays existem ao carregar dados
+// corrompidos, truncados ou de uma versão anterior do schema.
+function normalizeState(raw){
+  return {
+    dividas     : Array.isArray(raw?.dividas)     ? raw.dividas     : [],
+    fixas       : Array.isArray(raw?.fixas)       ? raw.fixas       : [],
+    variaveis   : Array.isArray(raw?.variaveis)   ? raw.variaveis   : [],
+    renda       : Array.isArray(raw?.renda)       ? raw.renda       : [],
+    recorrentes : Array.isArray(raw?.recorrentes) ? raw.recorrentes : [],
+    historico   : Array.isArray(raw?.historico)   ? raw.historico   : [],
+    metas       : Array.isArray(raw?.metas)       ? raw.metas       : []
+  };
+}
 
-// Mostra indicador de status de sync no header
+let state        = normalizeState(null);
+let currentModal = null, editingId = null;
+// FIX #2: varAno declarado globalmente — ausência causava crash em renderAll() inteiro
+let varMesFiltro  = mesAtual();
+let varAno        = new Date().getFullYear();
+let renMesFiltro  = mesAtual();
+let renAno        = new Date().getFullYear();
+let previsaoAno   = new Date().getFullYear();
+let confirmCb     = null;
+
+// ── SYNC STATUS ───────────────────────────────────────────────────────────────
+// FIX #4: status visual diferencia "salvo localmente" de "salvo na nuvem"
 function setSyncStatus(status){
   const el=document.getElementById('sync-status');
   if(!el)return;
-  const map={syncing:'⟳ sincronizando...',ok:'☁️ salvo',error:'⚠️ erro de sync',offline:'📴 offline'};
-  const cor={syncing:'#666',ok:'#30D158',error:'#FF3B3B',offline:'#FF9500'};
+  const map={
+    syncing  : '⟳ sincronizando...',
+    ok       : '☁️ salvo',
+    local    : '💾 salvo localmente',
+    error    : '⚠️ erro de sync — dado local',
+    offline  : '📴 offline — dado local',
+    pending  : '🕐 pendente sync'
+  };
+  const cor={syncing:'#666',ok:'#30D158',local:'#FF9500',error:'#FF3B3B',offline:'#FF9500',pending:'#FF9500'};
   el.textContent=map[status]||'';
   el.style.color=cor[status]||'#666';
 }
-
-// ── LOGOUT ─────────────────────────────────────────────────────────────────────
-async function logout(){
-  try{ await fetch(`${SB_URL}/auth/v1/logout`,{method:'POST',headers:sbHeaders(currentUser?.access_token)}); }catch(e){}
-  clearSession();
-  currentUser=null;
-  state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
-  showLogin();
-}
-
-// Carrega do Supabase como fonte primária; localStorage apenas como fallback offline
-async function loadState(){
-  setSyncStatus('syncing');
-  try{
-    const res=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}&select=data`,{
-      headers:sbHeaders(currentUser.access_token)
-    });
-    if(!res.ok){
-      if(res.status===401){
-        const renewed=await validateSession(currentUser);
-        if(renewed){currentUser=renewed;saveSession(renewed);loadState();return;}
-      }
-      throw new Error('http '+res.status);
-    }
-    const rows=await res.json();
-    if(rows&&rows.length&&rows[0].data&&Object.keys(rows[0].data).length){
-      state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[],...rows[0].data};
-      localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-    } else {
-      state={dividas:[],fixas:[],variaveis:[],renda:[],recorrentes:[],historico:[],metas:[]};
-      localStorage.removeItem(LOCAL_KEY);
-    }
-    setSyncStatus('ok');
-  }catch(e){
-    setSyncStatus(navigator.onLine?'error':'offline');
-    console.warn('Supabase load error, usando cache local:',e);
-    try{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=JSON.parse(dl);}catch(le){}
-  }
-  renderAll();
-  if(shouldShowOnboarding()) setTimeout(startOnboarding,600);
-}
-
-// Salva local imediatamente + debounce para Supabase (upsert por user_id)
-function saveState(){
-  localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
-  if(!currentUser){setSyncStatus('offline');return;}
-  setSyncStatus('syncing');
-  clearTimeout(syncTimeout);
-  syncTimeout=setTimeout(async()=>{
-    try{
-      const payload={user_id:currentUser.id,data:state,updated_at:new Date().toISOString()};
-      const headers=sbHeaders(currentUser.access_token);
-      // PATCH primeiro — atualiza registro existente
-      const patch=await fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
-        method:'PATCH',
-        headers:{...headers,'Prefer':'return=minimal'},
-        body:JSON.stringify(payload)
-      });
-      if(patch.status===401){
-        const renewed=await validateSession(currentUser);
-        if(renewed){currentUser=renewed;saveSession(renewed);saveState();return;}
-        throw new Error('Token inválido');
-      }
-      // Content-Range: */0 = nenhuma linha afetada = registro não existe ainda → INSERT
-      const range=patch.headers.get('Content-Range')||'';
-      const nonePatched=patch.ok&&(range.includes('*/0')||range==='');
-      if(nonePatched||patch.status===404){
-        const post=await fetch(`${SB_URL}/rest/v1/agc_finance`,{
-          method:'POST',
-          headers:{...headers,'Prefer':'return=minimal'},
-          body:JSON.stringify(payload)
-        });
-        if(!post.ok){const t=await post.text();throw new Error('INSERT '+post.status+': '+t.substring(0,120));}
-      } else if(!patch.ok){
-        const t=await patch.text();throw new Error('PATCH '+patch.status+': '+t.substring(0,120));
-      }
-      setSyncStatus('ok');
-    }catch(e){
-      setSyncStatus(navigator.onLine?'error':'offline');
-      console.warn('Supabase save error:',e.message);
-    }
-  },800);
-}
-
 
 // ── TOAST ──────────────────────────────────────────────────────────────────────
 function toast(msg, type='ok', duration=2500){
@@ -678,13 +624,194 @@ function toast(msg, type='ok', duration=2500){
 
 // ── UTILS ──────────────────────────────────────────────────────────────────────
 const fmt = v => 'R$\u00a0'+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-const today = () => new Date().toISOString().split('T')[0];
-function mesAtual(){return new Date().toISOString().slice(0,7);}
-const uid = () => Math.random().toString(36).slice(2,9);
+
+// FIX #16: today() e mesAtual() usam cálculo local — evita bug de timezone com toISOString()
+// toISOString() retorna UTC; em Vitória (UTC-3) isso pode gerar data do dia anterior após 21h
+function today(){
+  const d=new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function mesAtual(){
+  const d=new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  return `${y}-${m}`;
+}
+
+// FIX #13: uid() usa crypto.randomUUID() — Math.random() tem colisão provável em ~10^6 registros
+const uid = () => (typeof crypto!=='undefined'&&crypto.randomUUID)
+  ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,12);
+
 const gv = id => {const e=document.getElementById(id);return e?e.value.trim():'';}
 const sv = (id,v) => {const e=document.getElementById(id);if(e)e.value=v||'';}
-const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const MESES      = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const MESES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// ── LOGOUT ─────────────────────────────────────────────────────────────────────
+// FIX #9: tenta sync antes de limpar sessão para não perder dados pendentes
+async function logout(){
+  if(currentUser && localStorage.getItem(PENDING_SYNC_KEY)){
+    try{
+      await saveStateNow();
+      localStorage.removeItem(PENDING_SYNC_KEY);
+    }catch(e){
+      // Falhou mas não bloqueia o logout — dados permanecem no LOCAL_KEY
+      console.warn('Sync final falhou no logout:',e.message);
+    }
+  }
+  try{ await fetch(`${SB_URL}/auth/v1/logout`,{method:'POST',headers:sbHeaders(currentUser?.access_token)}); }catch(e){}
+  clearSession();
+  currentUser=null;
+  state=normalizeState(null);
+  showLogin();
+}
+
+// ── LOAD STATE ────────────────────────────────────────────────────────────────
+// FIX #8: loadState corrigido:
+//   1. await no loadState recursivo após renovar token
+//   2. Não apaga cache local se houver pendingSync (evita perda de dados não sincronizados)
+//   3. normalizeState() aplicado em todas as fontes
+//   4. Verifica online antes de tentar fetch
+async function loadState(){
+  setSyncStatus('syncing');
+
+  // Sem conexão — vai direto para cache, sem request que vai falhar
+  if(!navigator.onLine){
+    setSyncStatus('offline');
+    try{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=normalizeState(JSON.parse(dl));}catch(le){}
+    renderAll();
+    if(shouldShowOnboarding()) setTimeout(startOnboarding,600);
+    return;
+  }
+
+  try{
+    const res=await fetch(
+      `${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}&select=data,updated_at`,
+      {headers:sbHeaders(currentUser.access_token)}
+    );
+
+    if(res.status===401){
+      const renewed=await validateSession(currentUser);
+      if(renewed){
+        currentUser=renewed;
+        saveSession(renewed);
+        await loadState(); // FIX: await obrigatório — sem ele execução continua e renderAll() dispara antes do dado chegar
+        return;
+      }
+      throw new Error('Sessão expirada');
+    }
+    if(!res.ok) throw new Error('HTTP '+res.status);
+
+    const rows=await res.json();
+
+    if(rows && rows.length && rows[0].data && Object.keys(rows[0].data).length){
+      state=normalizeState(rows[0].data);
+      localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
+      localStorage.removeItem(PENDING_SYNC_KEY);
+      setSyncStatus('ok');
+    } else {
+      // Supabase retornou vazio — pode ser conta nova OU falha de sync anterior
+      // FIX #17: só limpa cache local se NÃO houver sync pendente
+      if(!localStorage.getItem(PENDING_SYNC_KEY)){
+        state=normalizeState(null);
+        localStorage.removeItem(LOCAL_KEY);
+      } else {
+        // Tem pendência — mantém cache local e tenta fazer upsert agora
+        try{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=normalizeState(JSON.parse(dl));}catch(le){}
+        await saveStateNow();
+        localStorage.removeItem(PENDING_SYNC_KEY);
+        toast('Dados pendentes sincronizados com a nuvem','ok');
+      }
+      setSyncStatus('ok');
+    }
+  }catch(e){
+    setSyncStatus(navigator.onLine?'error':'offline');
+    console.warn('Supabase load error, usando cache local:',e.message);
+    try{const dl=localStorage.getItem(LOCAL_KEY);if(dl)state=normalizeState(JSON.parse(dl));}catch(le){}
+  }
+
+  renderAll();
+  if(shouldShowOnboarding()) setTimeout(startOnboarding,600);
+}
+
+// ── SAVE STATE NOW (upsert síncrono) ─────────────────────────────────────────
+// FIX #1: substitui o PATCH+POST manual (race condition + falha silenciosa no Android).
+// Usa UPSERT real do PostgREST com on_conflict=user_id.
+// Chamado pelo debounce de saveState() E pelo visibilitychange E pelo retry online.
+async function saveStateNow(){
+  if(!currentUser){
+    setSyncStatus('offline');
+    return false;
+  }
+
+  const payload={
+    user_id    : currentUser.id,
+    data       : state,
+    updated_at : new Date().toISOString()
+  };
+
+  const res=await fetch(`${SB_URL}/rest/v1/agc_finance?on_conflict=user_id`,{
+    method :'POST',
+    headers:{...sbHeaders(currentUser.access_token),'Prefer':'resolution=merge-duplicates,return=minimal'},
+    body   :JSON.stringify(payload)
+  });
+
+  if(res.status===401){
+    const renewed=await validateSession(currentUser);
+    if(renewed){
+      currentUser=renewed;
+      saveSession(renewed);
+      return saveStateNow(); // retry com novo token
+    }
+    throw new Error('Token inválido — faça login novamente');
+  }
+
+  if(!res.ok){
+    const t=await res.text();
+    throw new Error(`UPSERT ${res.status}: ${t.substring(0,200)}`);
+  }
+
+  setSyncStatus('ok');
+  return true;
+}
+
+// ── SAVE STATE (debounced) ────────────────────────────────────────────────────
+// FIX #4 + #10: salva local imediatamente, exibe status correto, toast em erro crítico
+function saveState(){
+  localStorage.setItem(LOCAL_KEY,JSON.stringify(state));
+
+  if(!currentUser){
+    setSyncStatus('offline');
+    localStorage.setItem(PENDING_SYNC_KEY,'1');
+    return;
+  }
+  if(!navigator.onLine){
+    setSyncStatus('offline');
+    localStorage.setItem(PENDING_SYNC_KEY,'1');
+    return;
+  }
+
+  setSyncStatus('syncing');
+  clearTimeout(syncTimeout);
+
+  syncTimeout=setTimeout(async()=>{
+    try{
+      await saveStateNow();
+      localStorage.removeItem(PENDING_SYNC_KEY);
+    }catch(e){
+      // FIX #5: marca pendência para tentar ao reconectar
+      localStorage.setItem(PENDING_SYNC_KEY,'1');
+      setSyncStatus(navigator.onLine?'error':'offline');
+      console.warn('Supabase save error:',e.message);
+      // FIX #10: erros críticos de persistência aparecem em UI, não só no console
+      toast('Erro ao salvar na nuvem — dado preservado localmente','error',4000);
+    }
+  },800);
+}
 
 function diasVencer(ds){if(!ds)return 999;return Math.ceil((new Date(ds+'T12:00:00')-new Date())/86400000);}
 function dotColor(t){return {cartao:'#FF6B47',emprestimo:'#FF3B3B',pessoa:'#FF9500',fixa:'#3D9EFF',outro:'#BF5AF2'}[t]||'#666';}
@@ -1031,7 +1158,28 @@ function checkAutoStatus(){
 }
 
 // ── RENDER ALL ─────────────────────────────────────────────────────────────
-function renderAll(){checkAutoStatus();renderScore();renderKPIs();renderAlertas();renderProximos();renderDBar();renderDividas();renderFixas();renderVariaveis();renderRenda();renderRecorrentes();renderDestino();renderPrevisao();renderHistorico();}
+// FIX #12: safeRender isola cada seção — erro em renderVariaveis() não apaga renderDividas().
+// Princípio de Clean Code (Martin): falha numa unidade não deve cascatear para outras.
+function safeRender(name,fn){
+  try{ fn(); }
+  catch(e){ console.error(`Erro em ${name}:`,e); }
+}
+function renderAll(){
+  safeRender('autoStatus',   checkAutoStatus);
+  safeRender('score',        renderScore);
+  safeRender('kpis',         renderKPIs);
+  safeRender('alertas',      renderAlertas);
+  safeRender('proximos',     renderProximos);
+  safeRender('dbar',         renderDBar);
+  safeRender('dividas',      renderDividas);
+  safeRender('fixas',        renderFixas);
+  safeRender('variaveis',    renderVariaveis);
+  safeRender('renda',        renderRenda);
+  safeRender('recorrentes',  renderRecorrentes);
+  safeRender('destino',      renderDestino);
+  safeRender('previsao',     renderPrevisao);
+  safeRender('historico',    renderHistorico);
+}
 
 // ── KPIs ───────────────────────────────────────────────────────────────────────
 function renderKPIs(){
@@ -1868,16 +2016,44 @@ function showApp(){
   if(el&&currentUser)el.textContent=currentUser.email;
 }
 
+// ── WHITELIST: verifica se email está autorizado antes de enviar OTP ──────────
+// Consulta a tabela allowed_emails com a anon key.
+// RLS garante que a leitura só retorna o próprio email buscado (sem expor a lista).
+// Segunda camada de proteção está no trigger do banco (bloqueia mesmo via API direta).
+async function isEmailAllowed(email){
+  try{
+    const res=await fetch(
+      `${SB_URL}/rest/v1/allowed_emails?email=eq.${encodeURIComponent(email)}&select=email&limit=1`,
+      {headers:sbHeaders(SB_ANON_KEY)}
+    );
+    if(!res.ok) return false;
+    const rows=await res.json();
+    return Array.isArray(rows) && rows.length > 0;
+  }catch(e){
+    // Em caso de falha na verificação, bloqueia por segurança
+    console.warn('Erro ao verificar whitelist:',e.message);
+    return false;
+  }
+}
+
 async function sendOTP(){
-  const email=document.getElementById('login-email').value.trim();
+  const email=document.getElementById('login-email').value.trim().toLowerCase();
   if(!email||!email.includes('@')){
     document.getElementById('login-msg').textContent='Digite um e-mail válido.';
     return;
   }
   const btn=document.getElementById('login-btn');
-  btn.textContent='Enviando...'; btn.disabled=true;
+  btn.textContent='Verificando...'; btn.disabled=true;
   document.getElementById('login-msg').textContent='';
   try{
+    // WHITELIST CHECK: verifica autorização ANTES de enviar o OTP
+    // Usuário não autorizado nem sabe que a lista existe — mensagem genérica proposital
+    const allowed = await isEmailAllowed(email);
+    if(!allowed){
+      throw new Error('Acesso não autorizado. Entre em contato com o administrador.');
+    }
+
+    btn.textContent='Enviando...';
     const res=await fetch(`${SB_URL}/auth/v1/otp`,{
       method:'POST',
       headers:{'Content-Type':'application/json','apikey':SB_ANON_KEY},
@@ -1885,13 +2061,11 @@ async function sendOTP(){
     });
     const data=await res.json();
     if(!res.ok) throw new Error(data.error_description||data.msg||data.message||'Erro ao enviar');
-    // Mostra campo de código
     document.getElementById('login-form').style.display='none';
     document.getElementById('otp-form').style.display='block';
     document.getElementById('otp-email-display').textContent=email;
     document.getElementById('login-otp').focus();
-    // Guarda email para verificação
-    window._otpEmail=email;
+    _otpEmail=email;
   }catch(e){
     document.getElementById('login-msg').textContent='❌ '+e.message;
     btn.textContent='Enviar código'; btn.disabled=false;
@@ -1911,11 +2085,14 @@ async function verifyOTP(){
     const res=await fetch(`${SB_URL}/auth/v1/verify`,{
       method:'POST',
       headers:{'Content-Type':'application/json','apikey':SB_ANON_KEY},
-      body:JSON.stringify({email:window._otpEmail, token, type:'email'})
+      // FIX #6: type correto para OTP de Magic Link é 'magiclink'
+      // 'email' é para confirmação de cadastro — causa falha silenciosa neste fluxo
+      body:JSON.stringify({email:_otpEmail, token, type:'magiclink'})
     });
     const data=await res.json();
     if(!res.ok||!data.access_token) throw new Error(data.error_description||data.msg||data.message||'Código inválido ou expirado');
     currentUser={id:data.user.id, email:data.user.email, access_token:data.access_token, refresh_token:data.refresh_token};
+    _otpEmail=null; // FIX #7: limpa email temporário após autenticação bem-sucedida
     saveSession(currentUser);
     showApp();
     loadState();
@@ -1989,18 +2166,40 @@ async function validateSession(session){
 
 // ── INIT ───────────────────────────────────────────────────────────────────────
 async function init(){
-  window.addEventListener('online',()=>{ if(currentUser) saveState(); });
-  // Sync final ao fechar — usa fetch com keepalive (suporta headers auth, ao contrário de sendBeacon)
+  // FIX #5: evento online tenta sincronizar dados pendentes antes de qualquer novo save
+  window.addEventListener('online', async () => {
+    if(currentUser && localStorage.getItem(PENDING_SYNC_KEY)){
+      try{
+        await saveStateNow();
+        localStorage.removeItem(PENDING_SYNC_KEY);
+        toast('Dados sincronizados com a nuvem','ok');
+      }catch(e){
+        toast('Ainda não foi possível sincronizar — tentará novamente','warn',4000);
+      }
+    } else if(currentUser){
+      saveState();
+    }
+  });
+
+  // FIX #3: visibilitychange usa UPSERT real — PATCH não criava registro se ainda não existia,
+  // causando perda de dados no Android onde o browser mata abas agressivamente.
   window.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='hidden'&&currentUser&&state){
       clearTimeout(syncTimeout);
-      const payload=JSON.stringify({user_id:currentUser.id,data:state,updated_at:new Date().toISOString()});
-      fetch(`${SB_URL}/rest/v1/agc_finance?user_id=eq.${currentUser.id}`,{
-        method:'PATCH',
-        headers:{...sbHeaders(currentUser.access_token),'Prefer':'return=minimal'},
-        body:payload,
+      const payload=JSON.stringify({
+        user_id    : currentUser.id,
+        data       : state,
+        updated_at : new Date().toISOString()
+      });
+      fetch(`${SB_URL}/rest/v1/agc_finance?on_conflict=user_id`,{
+        method :'POST',
+        headers:{...sbHeaders(currentUser.access_token),'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body   :payload,
         keepalive:true
-      }).catch(()=>{});
+      }).catch(()=>{
+        // Falhou (ex: offline) — marca pendência para tentar ao reconectar
+        localStorage.setItem(PENDING_SYNC_KEY,'1');
+      });
     }
   });
 
